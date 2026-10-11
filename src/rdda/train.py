@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from rdda.models.unet import UNet
 from rdda.models.diffusion import SDE, CosineScheduler
 from rdda.data import SnapshotDataset, CHANNELS
+from rdda.ns2d.data import NS2DDataset
 
 DEFAULT_MODEL = dict(dim_in=3, dim_out=3, c=16, c_mults=(1, 2, 4), p=0)
 
@@ -83,7 +84,11 @@ def main(argv=None):
     p.add_argument('--workers', type=int, default=0)
     p.add_argument('--lr', type=float, default=1e-4)
     p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--dataset', choices=['rb', 'ns2d'], default='rb')
     p.add_argument('--model-channels', type=int, default=16)
+    p.add_argument('--c-mults', type=int, nargs='+', default=[1, 2, 4], help='U-Net channel multipliers per level')
+    p.add_argument('--periodic', action='store_true', help='circular padding on both spatial axes (periodic domains)')
+    p.add_argument('--val-stride', type=int, default=1, help='use every n-th validation frame (ns2d)')
     p.add_argument('--resume', default=None)
     p.add_argument('--save-every', type=int, default=10)
     p.add_argument('--max-train-batches', type=int, default=0, help='Smoke test only (0=all)')
@@ -93,8 +98,12 @@ def main(argv=None):
     rank, world, device = setup_distributed()
     try:
         seed_everything(args.seed + rank)
-        train_set = SnapshotDataset(args.data, 'train')
-        val_set = SnapshotDataset(args.data, 'val')
+        if args.dataset == 'ns2d':
+            train_set = NS2DDataset(args.data, 'train')
+            val_set = NS2DDataset(args.data, 'val', frame_stride=args.val_stride)
+        else:
+            train_set = SnapshotDataset(args.data, 'train')
+            val_set = SnapshotDataset(args.data, 'val')
         if train_set.shape != val_set.shape: raise ValueError('Train/val grid mismatch')
         sampler = DistributedSampler(train_set, num_replicas=world, rank=rank, shuffle=True, seed=args.seed) if world > 1 else None
         loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
@@ -105,7 +114,10 @@ def main(argv=None):
             val_loader = DataLoader(val_set, batch_size=args.batch_size, num_workers=args.workers)
         with np.load(Path(args.data) / 'stats.npz', allow_pickle=False) as f:
             mean, std = f['mean'].astype('f4').copy(), f['std'].astype('f4').copy()
-        model_kwargs = dict(DEFAULT_MODEL, c=args.model_channels)
+        model_kwargs = dict(DEFAULT_MODEL, c=args.model_channels, c_mults=tuple(args.c_mults))
+        if args.periodic: model_kwargs['periodic'] = True
+        if min(train_set.shape[:2]) % 2 ** (len(args.c_mults) - 1):
+            raise ValueError('grid size must be divisible by 2**(levels-1)')
         net = UNet(**model_kwargs).to(device)
         optimizer = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=0.)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.lr * .005)
@@ -155,7 +167,7 @@ def main(argv=None):
                            'scheduler_state_dict': scheduler.state_dict(), 'epoch': epoch+1,
                            'best_val': min(best, val_loss), 'train_loss': train_loss, 'val_loss': val_loss,
                            'mean': torch.from_numpy(mean), 'std': torch.from_numpy(std),
-                           'variables': CHANNELS, 'sample_shape': (3, *train_set.shape[:2]),
+                           'variables': ('u', 'v', 'omega') if args.dataset == 'ns2d' else CHANNELS, 'sample_shape': (3, *train_set.shape[:2]),
                            'pred_type': 'ortho', 'scheduler': 'cosine', 'cosine_range': 10.0,
                            'input_scale': 1.0, 'global_batch_size': world * args.batch_size}
                 if val_loss < best:

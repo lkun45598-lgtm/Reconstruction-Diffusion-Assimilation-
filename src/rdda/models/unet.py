@@ -13,7 +13,8 @@ from .layers.sample import Upsample, Downsample
 
 
 class UNet(nn.Module):
-    def __init__(self, dim_in, dim_out, c, c_mults=(1, 4, 4, 4, 4), resnet_block_groups=4, block_size=20, p=0):
+    def __init__(self, dim_in, dim_out, c, c_mults=(1, 4, 4, 4, 4), resnet_block_groups=4, block_size=20, p=0,
+                 periodic=False):
         '''
         Args:
             dim_in: valid + cond channels (cat together before input)
@@ -23,6 +24,8 @@ class UNet(nn.Module):
             resnet_block_groups: groups for GroupNorm
             block_size: DropBlock spatial block size
             p: DropBlock drop probability
+            periodic: both spatial axes are periodic -> circular padding in every conv and
+                interpolate+conv upsampling (transposed convs would break periodicity at the borders)
         forward:
             x: [B, dim_in, H, W]
             time: [B]
@@ -59,11 +62,14 @@ class UNet(nn.Module):
             self.ups.append(nn.ModuleList([
                 block_klass(d_out + d_in, d_out, d_t=time_dim, block_size=block_sizes[len(in_out)-1-ind]),
                 block_klass(d_out + d_in, d_out, d_t=time_dim),
-                Upsample(d_out, d_in, method='transposed') if not is_last else nn.Conv2d(d_out, d_in, 3, 1, 1)
+                Upsample(d_out, d_in, method='nearest' if periodic else 'transposed') if not is_last else nn.Conv2d(d_out, d_in, 3, 1, 1)
             ]))
 
         self.final_res_block = block_klass(c * 2, c, d_t=time_dim)
         self.final_conv = nn.Conv2d(c, dim_out, 1)
+        if periodic:
+            for m in self.modules():
+                if isinstance(m, nn.Conv2d): m.padding_mode = 'circular'
 
     def forward(self, x, t=None):
         '''

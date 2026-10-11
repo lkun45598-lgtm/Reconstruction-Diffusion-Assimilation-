@@ -18,6 +18,7 @@ dev = ["pytest"]
 [project.scripts]
 rdda-generate = "rdda.solver.generate_data:main"
 rdda-preprocess = "rdda.data:main"
+rdda-ns2d-prepare = "rdda.ns2d.data:main"
 rdda-train = "rdda.train:main"
 rdda-assimilate = "rdda.assimilation:main"
 rdda-forecast = "rdda.solver.forecast_solver:main"
