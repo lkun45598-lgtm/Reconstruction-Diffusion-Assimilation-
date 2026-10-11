@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from rdda.assimilation import make_mask
-from rdda.cycle import METHODS, add_problem_args, make_forecaster, model_sweep, run_cycle
+from rdda.cycle import METHODS, _relative, add_problem_args, make_forecaster, model_sweep, run_cycle
 from rdda.forecasters import load_trajectory
 
 METRICS = ('analysis_rmse', 'missing_rmse', 'background_rmse', 'ensemble_spread')
@@ -74,6 +74,8 @@ def main(argv=None):
     p.add_argument('--members', type=int, default=16)
     p.add_argument('--obs-std', type=float, default=0.05)
     p.add_argument('--bg-std', type=float, default=0.3)
+    p.add_argument('--relative-std', action=argparse.BooleanOptionalAction, default=None,
+                   help='obs/bg std as multiples of each channel std (default: on for ns2d, off for rb)')
     p.add_argument('--dps-rate', type=float, default=0.5)
     p.add_argument('--no-hard-observation', action='store_true', help='disable hard overwrite at observed points')
     p.add_argument('--sampler', choices=['ode', 'sde'], default='ode')
@@ -98,7 +100,7 @@ def main(argv=None):
                         print(f'== {name} model={value:g} lead={lead} seed={seed} method={method}', flush=True)
                         res = run_cycle(truth, a.prior, forecaster, mask, lead_frames=lead, analysis_steps=cycles,
                                         method=method, eval_horizons=a.eval_horizons, members=a.members,
-                                        steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, dps_rate=a.dps_rate,
+                                        steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, relative_std=_relative(a), dps_rate=a.dps_rate,
                                         sampler=a.sampler, seed=seed,
                                         hard_observation=not a.no_hard_observation, device=a.device)
                         rows += [dict(case=name, seed=seed, method=method, model_param=value, **r) for r in res]

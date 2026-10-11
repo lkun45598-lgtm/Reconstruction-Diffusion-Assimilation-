@@ -81,6 +81,10 @@ def add_problem_args(p):
     p.add_argument('--dt', type=float, default=0.01, help='[rb] solver step')
 
 
+def _relative(a):
+    return a.problem == 'ns2d' if a.relative_std is None else a.relative_std
+
+
 def model_sweep(a):
     """Values of the forecast-model parameter (Ra for rb, nu for ns2d) to run."""
     if a.problem == 'rb': return a.model_rayleigh or [a.rayleigh]
@@ -89,6 +93,7 @@ def model_sweep(a):
 
 def make_forecaster(a, value, grid_shape):
     from rdda.forecasters import RBForecaster, NSForecaster
+    from rdda.ns2d.solver import NSConfig
     if a.problem == 'rb':
         from rdda.solver.rb_equations import RBConfig
         return RBForecaster(RBConfig(nx=grid_shape[0], nz=grid_shape[1], lx=a.lx, lz=a.lz, rayleigh=value,
@@ -112,6 +117,8 @@ def main(argv=None):
     p.add_argument('--members', type=int, default=16)
     p.add_argument('--obs-std', type=float, default=0.05)
     p.add_argument('--bg-std', type=float, default=0.3)
+    p.add_argument('--relative-std', action=argparse.BooleanOptionalAction, default=None,
+                   help='obs/bg std as multiples of each channel std (default: on for ns2d, off for rb)')
     p.add_argument('--dps-rate', type=float, default=0.5)
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--no-hard-observation', action='store_true',
@@ -128,7 +135,7 @@ def main(argv=None):
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     rows = run_cycle(truth, a.prior, forecaster, mask, lead_frames=a.lead_frames, analysis_steps=a.analysis_steps,
                      method=a.method, eval_horizons=a.eval_horizons, out=out, members=a.members,
-                     steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, dps_rate=a.dps_rate,
+                     steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, relative_std=_relative(a), dps_rate=a.dps_rate,
                      sampler=a.sampler, seed=a.seed, hard_observation=not a.no_hard_observation, device=a.device)
     with open(out / 'metrics.csv', 'w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)

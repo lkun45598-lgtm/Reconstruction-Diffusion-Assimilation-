@@ -174,3 +174,29 @@ def test_ns2d_dataset_and_periodic_unet(tmp_path):
     with torch.no_grad():
         err = (torch.roll(net(x, t), (4, 8), (2, 3)) - net(torch.roll(x, (4, 8), (2, 3)), t)).abs().max()
     assert err < 1e-4
+
+
+def test_make_forecaster_both_problems():
+    import argparse
+    from rdda.cycle import add_problem_args, make_forecaster, model_sweep
+    p = argparse.ArgumentParser(); add_problem_args(p)
+    ns = p.parse_args(['--problem', 'ns2d', '--model-nu', '2e-4', '--solver-dt', '1e-3'])
+    ns.device = 'cpu'
+    assert model_sweep(ns) == [2e-4]
+    fc = make_forecaster(ns, 2e-4, (16, 16))
+    assert fc.steps_per_frame == 100 and fc.config.nu == 2e-4
+    rb = p.parse_args(['--problem', 'rb'])
+    assert model_sweep(rb) == [1e5] and make_forecaster(rb, 1e5, (72, 24)).steps_per_frame == 35
+
+
+def test_relative_and_per_channel_std(tmp_path):
+    """Per-channel / relative error stds are accepted; invalid values are rejected."""
+    truth = _truth(1, 5)[0]
+    m = make_mask(truth.shape, .1)
+    kw = dict(members=1, steps=2, dps_rate=.01, device='cpu')
+    ckpt = _tiny_prior(tmp_path)
+    for std_kw in (dict(obs_std=(.05, .1, .2), bg_std=.3), dict(obs_std=.05, bg_std=.3, relative_std=True)):
+        r = assimilate(ckpt, np.where(m, truth, 0), m, background=truth * .9, **std_kw, **kw)
+        assert np.isfinite(r['mean']).all()
+    with pytest.raises(ValueError):
+        assimilate(ckpt, np.where(m, truth, 0), m, obs_std=(.05, 0., .2), **kw)
