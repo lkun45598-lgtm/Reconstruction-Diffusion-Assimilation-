@@ -48,7 +48,9 @@ def main(argv=None):
     p.add_argument('--forecast-steps', type=int, default=35)
     p.add_argument('--analysis-steps', type=int, default=20)
     p.add_argument('--dt', type=float, default=0.01)
-    p.add_argument('--rayleigh', type=float, default=1e5)
+    p.add_argument('--rayleigh', type=float, default=1e5, help='Ra of the truth data')
+    p.add_argument('--model-rayleigh', type=float, default=None,
+                   help='Ra used by the forecast model (default: = --rayleigh); a mismatch emulates model error')
     p.add_argument('--prandtl', type=float, default=1.)
     p.add_argument('--lx', type=float, default=3.)
     p.add_argument('--lz', type=float, default=1.)
@@ -73,7 +75,7 @@ def main(argv=None):
         truth = np.load(f, mmap_mode='r')
         if a.analysis_steps >= truth.shape[0]: p.error(f'{f.name}: analysis steps exceed trajectory length')
         config = RBConfig(nx=truth.shape[1], nz=truth.shape[2], lx=a.lx, lz=a.lz,
-                          rayleigh=a.rayleigh, prandtl=a.prandtl, dt=a.dt)
+                          rayleigh=a.model_rayleigh or a.rayleigh, prandtl=a.prandtl, dt=a.dt)
         for seed in a.seeds:
             mask = make_mask(truth.shape[1:], a.observation_fraction, seed)
             for method in a.methods:

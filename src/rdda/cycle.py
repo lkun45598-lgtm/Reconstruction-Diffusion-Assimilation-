@@ -62,7 +62,9 @@ def main(argv=None):
     p.add_argument('--out', default='outputs/cycle')
     p.add_argument('--forecast-steps', type=int, required=True, help='solver steps between cycles')
     p.add_argument('--dt', type=float, default=0.01)
-    p.add_argument('--rayleigh', type=float, default=1e5)
+    p.add_argument('--rayleigh', type=float, default=1e5, help='Ra of the truth data')
+    p.add_argument('--model-rayleigh', type=float, default=None,
+                   help='Ra used by the forecast model (default: = --rayleigh); a mismatch emulates model error')
     p.add_argument('--prandtl', type=float, default=1.)
     p.add_argument('--lx', type=float, default=3.)
     p.add_argument('--lz', type=float, default=1.)
@@ -85,7 +87,7 @@ def main(argv=None):
     if truth.ndim != 4 or truth.shape[-1] != 3: p.error(f'expected (T,H,W,3), got {truth.shape}')
     if a.analysis_steps >= truth.shape[0]: p.error('analysis steps exceed trajectory length')
     config = RBConfig(nx=truth.shape[1], nz=truth.shape[2], lx=a.lx, lz=a.lz,
-                      rayleigh=a.rayleigh, prandtl=a.prandtl, dt=a.dt)
+                      rayleigh=a.model_rayleigh or a.rayleigh, prandtl=a.prandtl, dt=a.dt)
     mask = make_mask(truth.shape[1:], a.observation_fraction, a.seed)  # fixed for all cycles
     print('observed fraction:', mask.mean(), 'missing:', 1 - mask.mean())
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
