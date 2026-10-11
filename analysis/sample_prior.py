@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from rdda.assimilation import load_prior
-from rdda.nn.diffusion import SDE, CosineScheduler
+from rdda.models.diffusion import SDE, CosineScheduler
 
 
 def main():

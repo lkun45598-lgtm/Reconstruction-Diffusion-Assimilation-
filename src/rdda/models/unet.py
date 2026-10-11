@@ -1,15 +1,15 @@
 '''
 Standard UNet for diffusion models.
-Reorganized to use box/ components.
+Reorganized to use layers/ components.
 '''
 
 import torch
 from torch import nn
 from functools import partial
 
-from .box.embed import TimeEmbed
-from .box.stage import UNetResnetStage
-from .box.sample import Upsample, Downsample
+from .layers.embed import TimeEmbed
+from .layers.stage import UNetResnetStage
+from .layers.sample import Upsample, Downsample
 
 
 class UNet(nn.Module):

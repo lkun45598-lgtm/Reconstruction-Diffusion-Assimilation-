@@ -11,8 +11,8 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch import nn
-from rdda.nn.unet import UNet
-from rdda.nn.diffusion import SDE, CosineScheduler
+from rdda.models.unet import UNet
+from rdda.models.diffusion import SDE, CosineScheduler
 
 
 class PriorAdapter(nn.Module):

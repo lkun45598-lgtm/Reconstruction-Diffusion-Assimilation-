@@ -13,8 +13,8 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 
-from rdda.nn.unet import UNet
-from rdda.nn.diffusion import SDE, CosineScheduler
+from rdda.models.unet import UNet
+from rdda.models.diffusion import SDE, CosineScheduler
 from rdda.data import SnapshotDataset, CHANNELS
 
 DEFAULT_MODEL = dict(dim_in=3, dim_out=3, c=16, c_mults=(1, 2, 4), p=0)

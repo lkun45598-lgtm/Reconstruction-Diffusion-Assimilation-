@@ -860,7 +860,7 @@ class SDE(qc_of_input):
         scheduler (Scheduler): 当前使用的调度器实例
     
     Example:
-        >>> from rdda.nn.diffusion import SDE, CosineScheduler
+        >>> from rdda.models.diffusion import SDE, CosineScheduler
         >>> import torch
         >>> 
         >>> # 初始化 SDE (默认 CosineScheduler)
@@ -872,7 +872,7 @@ class SDE(qc_of_input):
         ... )
         >>> 
         >>> # 或使用自定义 scheduler
-        >>> from rdda.nn.diffusion import LinearDDPMScheduler
+        >>> from rdda.models.diffusion import LinearDDPMScheduler
         >>> sde = SDE(
         ...     device=torch.device('cuda:0'),
         ...     scheduler=LinearDDPMScheduler(device='cuda', target_type='v'),

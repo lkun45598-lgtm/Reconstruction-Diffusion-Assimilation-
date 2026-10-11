@@ -24,6 +24,7 @@ rdda-forecast = "rdda.solver.forecast_solver:main"
 rdda-cycle = "rdda.cycle:main"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["rdda*"]
 
 [tool.pytest.ini_options]

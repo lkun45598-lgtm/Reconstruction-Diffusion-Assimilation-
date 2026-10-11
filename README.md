@@ -10,12 +10,15 @@
 ## 1. 目录结构
 
 ```
-rdda/
-  data.py            case 级划分、训练集归一化、mmap Dataset（CLI: rdda-preprocess）
+src/rdda/
+  data.py            case 级划分、训练集归一化、mmap Dataset（rdda-preprocess）
   train.py           无条件 VP-Cosine / ortho 扩散训练，单卡或 torchrun DDP（rdda-train）
   assimilation.py    load_prior / make_mask / metric / assimilate（多条件 DPS）（rdda-assimilate）
   cycle.py           预报→稀疏观测→DPS 的循环同化（rdda-cycle）
-  nn/                U-Net、CosineScheduler、SDE 与 DPS 采样器（来自 rb_diffusion_minimal）
+  models/
+    unet.py          U-Net
+    diffusion.py     CosineScheduler、SDE 与 DPS 采样器（来自 rb_diffusion_minimal）
+    layers/          U-Net 组件（attention、res block、embed 等）
   solver/            Dedalus v3 的 RB 方程、数据生成、重启预报（rdda-generate / rdda-forecast）
 analysis/            先验采样与统计、背景预报技巧、循环结果绘图
 tests/               接口与接线测试

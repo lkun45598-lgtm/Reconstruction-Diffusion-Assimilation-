@@ -44,7 +44,7 @@ def test_project_approx_incompressible():
 
 def test_prior_dps_observation_integration(tmp_path):
     # Synthetic/random-weight interface test, not an accuracy experiment.
-    from rdda.nn.unet import UNet
+    from rdda.models.unet import UNet
     import torch
     kw=dict(dim_in=3,dim_out=3,c=8,c_mults=(1,2,4),p=0)
     net=UNet(**kw)
@@ -65,7 +65,7 @@ def test_cycle_with_mocked_forecast(tmp_path, monkeypatch):
     """Cycle wiring (no Dedalus, random-weight prior): metrics rows and frame files are produced."""
     import torch
     from rdda import cycle
-    from rdda.nn.unet import UNet
+    from rdda.models.unet import UNet
     kw = dict(dim_in=3, dim_out=3, c=8, c_mults=(1, 2, 4), p=0)
     ckpt = tmp_path / 'model.pt'
     torch.save(dict(model_state_dict=UNet(**kw).state_dict(), model_kwargs=kw, mean=torch.zeros(3),
