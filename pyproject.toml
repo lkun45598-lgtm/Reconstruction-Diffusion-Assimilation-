@@ -22,6 +22,7 @@ rdda-train = "rdda.train:main"
 rdda-assimilate = "rdda.assimilation:main"
 rdda-forecast = "rdda.solver.forecast_solver:main"
 rdda-cycle = "rdda.cycle:main"
+rdda-experiments = "rdda.experiments:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

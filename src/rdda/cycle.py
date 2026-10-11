@@ -14,21 +14,38 @@ from rdda.solver.forecast_solver import forecast
 from rdda.solver.rb_equations import RBConfig
 
 
+METHODS = ('bg_obs', 'obs_only', 'free_run')
+
+
 def run_cycle(truth, prior, config, mask, *, forecast_steps, analysis_steps=20, projection='streamfunction',
-              out=None, **dps):
-    """Run cycles 0..analysis_steps on truth (T,H,W,3); dps kwargs go to assimilate()."""
+              method='bg_obs', out=None, **dps):
+    """Run cycles 0..analysis_steps on truth (T,H,W,3); dps kwargs go to assimilate().
+
+    method: bg_obs   = DPS with observations + numerical background (the proposed scheme)
+            obs_only = DPS with observations only, no background (no forecast is run)
+            free_run = frame 0 analysed from observations, then pure numerical forecast (no assimilation)
+    """
+    if method not in METHODS: raise ValueError(f'method must be one of {METHODS}')
     seed = dps.pop('seed', 42)
     rows, analysis = [], None
     for t in range(analysis_steps + 1):
         xtrue = np.asarray(truth[t], dtype=np.float32)
         obs = np.where(mask, xtrue, 0)
-        background, info = (None, {}) if t == 0 else forecast(analysis, forecast_steps, config, projection, True)
-        analysis = assimilate(prior, obs, mask, background, seed=seed + t, **dps)['mean']
+        background, info = (None, {}) if t == 0 or method == 'obs_only' else forecast(analysis, forecast_steps, config, projection, True)
+        spread = None
+        if method == 'free_run' and t > 0:
+            analysis = background
+        else:
+            result = assimilate(prior, obs, mask, background if method == 'bg_obs' else None,
+                                seed=seed + t, **dps)
+            analysis = result['mean']
+            spread = float(np.sqrt(np.mean(np.square(result['std'], dtype=np.float64))))
         rows.append({'frame': t,
                      'analysis_rmse': metric(analysis, xtrue),
                      'missing_rmse': metric(analysis, xtrue, ~mask),
                      'observed_rmse': metric(analysis, xtrue, mask),
                      'background_rmse': None if background is None else metric(background, xtrue),
+                     'ensemble_spread': spread,
                      'projection_rmse': info.get('initial_projection_rmse')})
         print(rows[-1], flush=True)
         if out is not None:
@@ -58,6 +75,7 @@ def main(argv=None):
     p.add_argument('--dps-rate', type=float, default=0.5)
     p.add_argument('--projection', choices=['none', 'streamfunction'], default='streamfunction')
     p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--method', choices=METHODS, default='bg_obs')
     p.add_argument('--sampler', choices=['ode', 'sde'], default='ode')
     p.add_argument('--device', default='cuda:0' if torch.cuda.is_available() else 'cpu')
     a = p.parse_args(argv)
@@ -70,7 +88,7 @@ def main(argv=None):
     print('observed fraction:', mask.mean(), 'missing:', 1 - mask.mean())
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     rows = run_cycle(truth, a.prior, config, mask, forecast_steps=a.forecast_steps,
-                     analysis_steps=a.analysis_steps, projection=a.projection, out=out, members=a.members,
+                     analysis_steps=a.analysis_steps, projection=a.projection, method=a.method, out=out, members=a.members,
                      steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, dps_rate=a.dps_rate,
                      sampler=a.sampler, seed=a.seed, device=a.device)
     with open(out / 'metrics.csv', 'w', newline='') as f:

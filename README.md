@@ -72,6 +72,15 @@ rdda-cycle --case data/processed/test/case_00000.npy --prior outputs/prior/best.
 
 观测位置在整个循环内固定。背景场由上一步分析场（集合均值）经流函数近似投影后用 Dedalus 推进 `--forecast-steps` 步得到；投影会修改分析场，诊断量 `projection_rmse` 会记录。输出 `frame_XXXX.npz`、`metrics.csv`、`parameters.json`。
 
+基线对比（三种方法共用同一固定观测 mask，对全部测试 case × 多 seed 重复）：
+
+```bash
+rdda-experiments --prior outputs/prior/best.pt --out outputs/experiments --seeds 0 1 2
+python analysis/plot_experiments.py --run outputs/experiments
+```
+
+`bg_obs`（观测+背景 DPS）、`obs_only`（仅观测 DPS）、`free_run`（第 0 帧分析后纯数值预报，不同化）。输出 `runs.csv`（逐 case/seed/frame）、`summary.csv`（均值±标准差）、`method_comparison.png`、`spread_skill.png`。
+
 绘图与诊断：
 
 ```bash
@@ -84,8 +93,7 @@ python analysis/background_skill.py   # 纯数值预报相对真值的误差
 
 ## 7. 已知局限 / 待做
 
-- 缺少基线：无同化自由预报、仅观测 DPS 的对比；目前同化 RMSE 与背景 RMSE 基本持平，后期上升。
-- 仅在单个测试 case、单 seed 上评估；需要全部测试 case 多 seed、集合离散度与 spread-skill。
+- 基线对比脚本已就绪（`rdda-experiments`），但完整规模的结果尚未跑出；此前单 case 的循环显示同化 RMSE 与背景 RMSE 基本持平、后期上升，需用它验证。
 - 分析场使用集合均值，会平滑小尺度结构。
 - 每步用 `forecast` 重新构造 Dedalus 求解器，压力与 tau 初始化为零，并非严格 restart。
 - 数值真值只是给定离散下的参考解，正式结论前需做分辨率/时间步收敛检验。

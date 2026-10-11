@@ -78,3 +78,38 @@ def test_cycle_with_mocked_forecast(tmp_path, monkeypatch):
                            members=1, steps=2, dps_rate=.01, device='cpu')
     assert [r['frame'] for r in rows] == [0, 1, 2] and rows[0]['background_rmse'] is None
     assert (tmp_path / 'frame_0002.npz').exists() and rows[2]['observed_rmse'] < 1e-6
+
+
+def _tiny_prior(tmp_path):
+    import torch
+    from rdda.models.unet import UNet
+    kw = dict(dim_in=3, dim_out=3, c=8, c_mults=(1, 2, 4), p=0)
+    ckpt = tmp_path / 'model.pt'
+    torch.save(dict(model_state_dict=UNet(**kw).state_dict(), model_kwargs=kw, mean=torch.zeros(3),
+                    std=torch.ones(3), sample_shape=(3, 12, 8), pred_type='ortho', scheduler='cosine',
+                    cosine_range=10.0, input_scale=1.0), ckpt)
+    return ckpt
+
+
+@pytest.mark.parametrize('method', ['obs_only', 'free_run'])
+def test_cycle_baseline_methods(tmp_path, monkeypatch, method):
+    from rdda import cycle
+    calls = []
+    monkeypatch.setattr(cycle, 'forecast', lambda a, s, c, p, i: (calls.append(1), (a * .99, {}))[1])
+    truth = np.random.default_rng(2).normal(size=(4, 12, 8, 3)).astype('f4')
+    mask = make_mask(truth.shape[1:], .1)
+    rows = cycle.run_cycle(truth, _tiny_prior(tmp_path), None, mask, forecast_steps=1, analysis_steps=2,
+                           method=method, members=2, steps=2, dps_rate=.01, device='cpu')
+    if method == 'free_run':   # DPS only at frame 0, afterwards pure forecast
+        assert rows[0]['ensemble_spread'] is not None and rows[1]['ensemble_spread'] is None
+        assert rows[1]['analysis_rmse'] == rows[1]['background_rmse']
+    else:                      # always DPS, and no solver forecast at all
+        assert all(r['ensemble_spread'] is not None for r in rows) and not calls
+
+
+def test_experiment_summary():
+    from rdda.experiments import summarize
+    rows = [dict(method='m', frame=1, analysis_rmse=a, missing_rmse=a, background_rmse=None, ensemble_spread=None)
+            for a in (1., 3.)]
+    s = summarize(rows)
+    assert len(s) == 1 and s[0]['n'] == 2 and s[0]['missing_rmse_mean'] == 2. and s[0]['background_rmse_mean'] is None
