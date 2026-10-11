@@ -74,7 +74,7 @@ def test_cycle_with_mocked_forecast(tmp_path, monkeypatch):
     monkeypatch.setattr(cycle, 'forecast', lambda a, steps, cfg, proj, info: (a * .99, {'initial_projection_rmse': 0.}))
     truth = np.random.default_rng(1).normal(size=(4, 12, 8, 3)).astype('f4')
     mask = make_mask(truth.shape[1:], .1)
-    rows = cycle.run_cycle(truth, ckpt, None, mask, forecast_steps=1, analysis_steps=2, out=tmp_path,
+    rows = cycle.run_cycle(truth, ckpt, None, mask, forecast_steps=1, steps_per_frame=1, analysis_steps=2, out=tmp_path,
                            members=1, steps=2, dps_rate=.01, device='cpu')
     assert [r['frame'] for r in rows] == [0, 1, 2] and rows[0]['background_rmse'] is None
     assert (tmp_path / 'frame_0002.npz').exists() and rows[2]['observed_rmse'] < 1e-6
@@ -98,7 +98,7 @@ def test_cycle_baseline_methods(tmp_path, monkeypatch, method):
     monkeypatch.setattr(cycle, 'forecast', lambda a, s, c, p, i: (calls.append(1), (a * .99, {}))[1])
     truth = np.random.default_rng(2).normal(size=(4, 12, 8, 3)).astype('f4')
     mask = make_mask(truth.shape[1:], .1)
-    rows = cycle.run_cycle(truth, _tiny_prior(tmp_path), None, mask, forecast_steps=1, analysis_steps=2,
+    rows = cycle.run_cycle(truth, _tiny_prior(tmp_path), None, mask, forecast_steps=1, steps_per_frame=1, analysis_steps=2,
                            method=method, members=2, steps=2, dps_rate=.01, device='cpu')
     if method == 'free_run':   # DPS only at frame 0, afterwards pure forecast
         assert rows[0]['ensemble_spread'] is not None and rows[1]['ensemble_spread'] is None
@@ -109,8 +109,8 @@ def test_cycle_baseline_methods(tmp_path, monkeypatch, method):
 
 def test_experiment_summary():
     from rdda.experiments import summarize
-    rows = [dict(method='m', frame=1, analysis_rmse=a, missing_rmse=a, background_rmse=None, ensemble_spread=None)
-            for a in (1., 3.)]
+    rows = [dict(method='m', frame=1, model_rayleigh=1e5, lead_frames=1, analysis_rmse=a, missing_rmse=a,
+                 background_rmse=None, ensemble_spread=None, fcst_rmse_h2=a) for a in (1., 3.)]
     s = summarize(rows)
     assert len(s) == 1 and s[0]['n'] == 2 and s[0]['missing_rmse_mean'] == 2. and s[0]['background_rmse_mean'] is None
 
@@ -123,3 +123,19 @@ def test_soft_observation_does_not_overwrite(tmp_path):
     soft = assimilate(ckpt, np.where(m, truth, 0), m, hard_observation=False, **kw)
     assert not np.allclose(soft['mean'][m], truth[m])
     np.testing.assert_allclose(soft['mean'], soft['raw_mean'])
+
+
+def test_multi_step_lead_aligns_truth_and_horizons(tmp_path, monkeypatch):
+    """With lead=3 frames the cycle must be scored against truth[3t]; horizons use truth[idx+h]."""
+    from rdda import cycle
+    monkeypatch.setattr(cycle, 'forecast', lambda a, steps, cfg, proj, info=False: (a, {}) if info else a)
+    truth = np.random.default_rng(3).normal(size=(10, 12, 8, 3)).astype('f4')
+    mask = make_mask(truth.shape[1:], .1)
+    rows = cycle.run_cycle(truth, _tiny_prior(tmp_path), None, mask, forecast_steps=3, steps_per_frame=1,
+                           analysis_steps=3, eval_horizons=(2,), members=1, steps=2, dps_rate=.01, device='cpu')
+    assert [r['truth_frame'] for r in rows] == [0, 3, 6, 9] and rows[0]['lead_frames'] == 3
+    assert rows[2]['fcst_rmse_h2'] is not None and rows[3]['fcst_rmse_h2'] is None  # 9+2 beyond trajectory
+    with pytest.raises(ValueError):
+        cycle.run_cycle(truth, _tiny_prior(tmp_path), None, mask, forecast_steps=3, steps_per_frame=1, analysis_steps=4)
+    with pytest.raises(ValueError):
+        cycle.run_cycle(truth, _tiny_prior(tmp_path), None, mask, forecast_steps=50, steps_per_frame=35, analysis_steps=1)
