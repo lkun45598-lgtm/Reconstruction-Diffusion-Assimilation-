@@ -1,0 +1,3 @@
+# Install Dedalus v3 via its documented platform-specific procedure first.
+# Requires MPI/FFTW/BLAS development libraries; CPU-side solver only.
+dedalus>=3.0

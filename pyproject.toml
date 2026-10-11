@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rdda"
+version = "0.1.0"
+description = "Reconstruction Diffusion Assimilation: diffusion-prior reconstruction of Rayleigh-Benard flow from sparse observations with cycling DPS assimilation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = ["numpy", "scipy", "torch"]
+
+[project.optional-dependencies]
+analysis = ["matplotlib", "pandas"]
+dev = ["pytest"]
+
+[project.scripts]
+rdda-generate = "rdda.solver.generate_data:main"
+rdda-preprocess = "rdda.data:main"
+rdda-train = "rdda.train:main"
+rdda-assimilate = "rdda.assimilation:main"
+rdda-forecast = "rdda.solver.forecast_solver:main"
+rdda-cycle = "rdda.cycle:main"
+
+[tool.setuptools.packages.find]
+include = ["rdda*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
