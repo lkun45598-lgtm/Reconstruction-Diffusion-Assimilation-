@@ -75,6 +75,8 @@ def main(argv=None):
     p.add_argument('--dps-rate', type=float, default=0.5)
     p.add_argument('--projection', choices=['none', 'streamfunction'], default='streamfunction')
     p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--no-hard-observation', action='store_true',
+                   help='do not overwrite observed points in the analysis (avoids spikes at observation pixels)')
     p.add_argument('--method', choices=METHODS, default='bg_obs')
     p.add_argument('--sampler', choices=['ode', 'sde'], default='ode')
     p.add_argument('--device', default='cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -90,7 +92,7 @@ def main(argv=None):
     rows = run_cycle(truth, a.prior, config, mask, forecast_steps=a.forecast_steps,
                      analysis_steps=a.analysis_steps, projection=a.projection, method=a.method, out=out, members=a.members,
                      steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, dps_rate=a.dps_rate,
-                     sampler=a.sampler, seed=a.seed, device=a.device)
+                     sampler=a.sampler, seed=a.seed, hard_observation=not a.no_hard_observation, device=a.device)
     with open(out / 'metrics.csv', 'w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
     (out / 'parameters.json').write_text(json.dumps(

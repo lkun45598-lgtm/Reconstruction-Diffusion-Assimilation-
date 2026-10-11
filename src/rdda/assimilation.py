@@ -148,6 +148,7 @@ def main():
     p.add_argument('--bg-std',type=float,default=0.3)
     p.add_argument('--dps-rate',type=float,default=0.5)
     p.add_argument('--sampler',choices=['ode','sde'],default='ode')
+    p.add_argument('--no-hard-observation',action='store_true',help='do not overwrite observed points in the final analysis')
     p.add_argument('--seed',type=int,default=42)
     p.add_argument('--device',default='cuda:0' if torch.cuda.is_available() else 'cpu')
     p.add_argument('--out',default='outputs/assimilation/result.npz')
@@ -165,7 +166,7 @@ def main():
     background=validate_field(np.load(a.background),'background') if a.background else None
     ans=assimilate(a.prior,observations,mask,background,members=a.members,steps=a.steps,
                    obs_std=a.obs_std,bg_std=a.bg_std,dps_rate=a.dps_rate,sampler=a.sampler,
-                   seed=a.seed,device=a.device)
+                   seed=a.seed,hard_observation=not a.no_hard_observation,device=a.device)
     report={'observation_fraction':float(mask.mean()), 'posterior_obs_rmse':metric(ans['mean'],observations,mask)}
     if truth is not None:
         report['analysis_rmse']=metric(ans['mean'],truth)

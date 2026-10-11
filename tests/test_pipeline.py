@@ -113,3 +113,13 @@ def test_experiment_summary():
             for a in (1., 3.)]
     s = summarize(rows)
     assert len(s) == 1 and s[0]['n'] == 2 and s[0]['missing_rmse_mean'] == 2. and s[0]['background_rmse_mean'] is None
+
+
+def test_soft_observation_does_not_overwrite(tmp_path):
+    truth = np.random.default_rng(7).normal(size=(12, 8, 3)).astype('f4')
+    m = make_mask(truth.shape, .1)
+    kw = dict(members=1, steps=2, dps_rate=.01, device='cpu')
+    ckpt = _tiny_prior(tmp_path)
+    soft = assimilate(ckpt, np.where(m, truth, 0), m, hard_observation=False, **kw)
+    assert not np.allclose(soft['mean'][m], truth[m])
+    np.testing.assert_allclose(soft['mean'], soft['raw_mean'])

@@ -60,7 +60,7 @@ rdda-assimilate --prior outputs/prior/best.pt --truth truth.npy --background bg.
   --fraction 0.01 --members 4 --steps 100 --sampler ode --obs-std 0.05 --bg-std 0.3
 ```
 
-真实观测模式：提供 `--observations observed.npy --mask obs_mask.npy`。`--obs-std/--bg-std` 是假设误差标准差（物理单位）；多条件 DPS 是近似后验引导。默认在观测点硬覆盖，因此 `observed_rmse≈0` 不代表同化质量，应看 `missing_rmse`。
+真实观测模式：提供 `--observations observed.npy --mask obs_mask.npy`。`--obs-std/--bg-std` 是假设误差标准差（物理单位）；多条件 DPS 是近似后验引导。默认在观测点硬覆盖，因此 `observed_rmse≈0` 不代表同化质量，应看 `missing_rmse`。硬覆盖会在观测像素处留下尖峰（拉普拉斯约为周围的 2 倍），可用 `--no-hard-observation`（`rdda-assimilate`/`rdda-cycle`/`rdda-experiments` 均支持）关闭并对比。
 
 ## 6. 循环同化
 
@@ -85,7 +85,7 @@ python analysis/plot_experiments.py --run outputs/experiments
 
 ```bash
 python analysis/plot_cycle_metrics.py --run outputs/cycle
-python analysis/plot_fixed_sparse.py --data-dir outputs/cycle --channel 0
+python analysis/plot_fixed_sparse.py --data-dir outputs/cycle --channel 0   # 观测/真值/背景/DPS/两种误差
 python analysis/plot_flow_fields.py --frame-file outputs/cycle/frame_0020.npz
 python analysis/sample_prior.py --prior outputs/prior/best.pt && python analysis/evaluate_prior.py
 python analysis/background_skill.py   # 纯数值预报相对真值的误差

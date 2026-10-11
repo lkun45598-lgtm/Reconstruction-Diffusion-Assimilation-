@@ -59,6 +59,7 @@ def main(argv=None):
     p.add_argument('--bg-std', type=float, default=0.3)
     p.add_argument('--dps-rate', type=float, default=0.5)
     p.add_argument('--projection', choices=['none', 'streamfunction'], default='streamfunction')
+    p.add_argument('--no-hard-observation', action='store_true', help='disable hard overwrite at observed points')
     p.add_argument('--sampler', choices=['ode', 'sde'], default='ode')
     p.add_argument('--device', default='cuda:0' if torch.cuda.is_available() else 'cpu')
     a = p.parse_args(argv)
@@ -80,7 +81,8 @@ def main(argv=None):
                 res = run_cycle(truth, a.prior, config, mask, forecast_steps=a.forecast_steps,
                                 analysis_steps=a.analysis_steps, projection=a.projection, method=method,
                                 members=a.members, steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std,
-                                dps_rate=a.dps_rate, sampler=a.sampler, seed=seed, device=a.device)
+                                dps_rate=a.dps_rate, sampler=a.sampler, seed=seed,
+                                hard_observation=not a.no_hard_observation, device=a.device)
                 rows += [dict(case=f.name, seed=seed, method=method, **r) for r in res]
                 write_csv(out / 'runs.csv', rows)  # incremental: a crash keeps finished runs
     summary = summarize(rows)
