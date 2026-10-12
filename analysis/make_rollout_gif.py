@@ -81,9 +81,12 @@ def main():
     vmax = max(max(f['truth'].max(), f['est'].max()) for f in allf)
     emax = float(np.percentile(np.concatenate([np.abs(f['est'] - f['truth']).ravel() for f in allf[::3]]), 99))
 
-    fig = plt.figure(figsize=(12.8, 3.0 * nr + 2.9))
-    gs = fig.add_gridspec(nr + 1, 7, width_ratios=[1.05, 1, 1, .05, .5, 1, .05],
-                          height_ratios=[1] * nr + [1.0], wspace=.08, hspace=.35)
+    nx, nz = rows[0][2][0]['truth'].shape
+    asp = nz / nx                                    # true height/width of one panel (RB is 3:1, NS is 1:1)
+    row_h = 2.5 * asp + 0.45                         # panel width is ~2.5 in at this figure width
+    fig = plt.figure(figsize=(13.5, nr * row_h + 2.4 + 1.5))
+    gs = fig.add_gridspec(nr + 1, 7, width_ratios=[1.0, 1.25, 1.25, .05, .4, 1.25, .06],
+                          height_ratios=[row_h] * nr + [2.4], wspace=.08, hspace=.25)
     ims, tags, labs, dots, rm_txt = [], [], [], [], []
     for i, (params, m, frames) in enumerate(rows):
         lab = fig.add_subplot(gs[i, 0]); lab.axis('off')
@@ -93,7 +96,7 @@ def main():
                                               (5, 'magma', (0, emax)))):
             ax = fig.add_subplot(gs[i, col])
             row.append(ax.imshow(np.zeros_like(frames[0]['truth']).T, origin='lower', cmap=cmap, vmin=lim[0],
-                                 vmax=lim[1], aspect='auto', interpolation=a.interp))
+                                 vmax=lim[1], aspect='equal', interpolation=a.interp))
             ax.set_xticks([]); ax.set_yticks([])
             for s in ax.spines.values(): s.set_visible(False)
             if i == 0: ax.set_title(['Ref (truth)', 'Estimate', '|Estimate - Ref|'][j], fontweight='bold')

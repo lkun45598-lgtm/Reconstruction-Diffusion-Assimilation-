@@ -44,7 +44,9 @@ def main():
     emax = float(np.percentile(np.concatenate([np.abs(x - y).ravel() for xs, ys in ((fc, truth), (an, truth))
                                                for x, y in zip(xs, ys)]), 99))
     n = len(steps)
-    fig = plt.figure(figsize=(14, 2.9 * n + .9))
+    nx, nz = truth[0].shape
+    asp = nz / nx                                   # true height/width of a panel (RB is 3:1, NS is 1:1)
+    fig = plt.figure(figsize=(14, n * (2.0 * asp + 0.75) + 1.0))
     gs = fig.add_gridspec(n, 7, width_ratios=[1, 1, 1, .05, .35, 1, 1], wspace=.12, hspace=.32)
     for r, s in enumerate(steps):
         t = (m.loc[m.frame == s, 'truth_frame'].iloc[0]) * a.frame_dt
@@ -55,7 +57,7 @@ def main():
                   'Analysis\n(just after the data)', '|Forecast - Ref|', '|Analysis - Ref|']
         for k, (col, arr, cmap, lim) in enumerate(panels):
             ax = fig.add_subplot(gs[r, col])
-            im = ax.imshow(arr.T, origin='lower', cmap=cmap, vmin=lim[0], vmax=lim[1], aspect='auto', interpolation=a.interp)
+            im = ax.imshow(arr.T, origin='lower', cmap=cmap, vmin=lim[0], vmax=lim[1], aspect='equal', interpolation=a.interp)
             ax.set_xticks([]); ax.set_yticks([])
             if r == 0: ax.set_title(titles[k], fontweight='bold', fontsize=10)
             if k == 0:
