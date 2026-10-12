@@ -20,6 +20,7 @@ def main():
     p.add_argument('--labels', nargs='+', default=None)
     p.add_argument('--problem', choices=['rb', 'ns2d'], default='ns2d')
     p.add_argument('--frame-dt', type=float, default=0.1, help='physical time between cycles')
+    p.add_argument('--yscale', choices=['auto', 'linear', 'log'], default='auto')
     p.add_argument('--out', required=True)
     a = p.parse_args()
     labels = a.labels or [Path(r).name for r in a.runs]
@@ -40,7 +41,10 @@ def main():
                 ax.scatter(td, din[bgcol], facecolors='none', edgecolors=color, s=40, zorder=3)
                 ax.scatter(td, din[col], color=color, s=22, zorder=3)
                 for x in td: ax.axvline(x, color=color, ls=':', lw=.8, alpha=.6)
-        ax.set_title(title, fontweight='bold'); ax.grid(alpha=.3); ax.set_ylabel('missing-region RMSE')
+        ys = [pd.read_csv(Path(r) / 'metrics.csv')[col] for r in a.runs]
+        lo, hi = min(y[y > 0].min() for y in ys), max(y.max() for y in ys)
+        if a.yscale == 'log' or (a.yscale == 'auto' and hi / lo > 8): ax.set_yscale('log')
+        ax.set_title(title, fontweight='bold'); ax.grid(alpha=.3, which='both'); ax.set_ylabel('RMSE over unobserved pixels')
     for ax in axes[1]: ax.set_xlabel('time')
     axes[0, 0].legend(fontsize=8)
     fig.suptitle('Error over the rollout  (hollow = before data, filled = after data)', fontweight='bold')

@@ -20,8 +20,9 @@ def main():
     p.add_argument('--case', required=True, help='ns2d trajectory.npy (H,W,T,3)')
     p.add_argument('--prior', required=True)
     p.add_argument('--out', default='outputs/sweep_dps')
-    p.add_argument('--grid', nargs='+', default=['0.1:0.5', '0.3:0.5', '1:0.5', '3:0.5', '10:0.5', '0.3:2', '1:2', '3:2'],
-                   help='bg_std:dps_rate pairs (bg_std relative to channel std)')
+    p.add_argument('--grid', nargs='+', default=['obs_only', 'bg_obs:0.3:0.5:noise', 'bg_obs:1:0.5:background:0.2',
+                                                 'bg_obs:1:0.5:background:0.4', 'bg_obs:1:0.5:background:0.6'],
+                   help='method[:bg_std[:dps_rate[:init[:t_start]]]]  (bg_std relative to channel std)')
     p.add_argument('--obs-std', type=float, default=0.05)
     p.add_argument('--observation-fraction', type=float, default=0.05)
     p.add_argument('--start-frame', type=int, default=100)
@@ -37,18 +38,21 @@ def main():
     fc = NSForecaster(NSConfig(nu=a.model_nu, n=truth.shape[1], device=a.device))
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     rows = []
-    for pair in a.grid:
-        bg_std, rate = map(float, pair.split(':'))
-        res = run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method='bg_obs', members=a.members,
+    for item in a.grid:
+        f = item.split(':') + [None] * 5
+        method, bg_std, rate, init, t_start = f[0], float(f[1] or 0.3), float(f[2] or 0.5), f[3] or 'noise', f[4]
+        t_start = float(t_start) if t_start else (0.95 if init == 'noise' else 0.4)
+        res = run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method=method, members=a.members,
                         steps=a.dps_steps, obs_std=a.obs_std, bg_std=bg_std, relative_std=True, dps_rate=rate,
-                        seed=a.seed, device=a.device)
+                        init=init, t_start=t_start, seed=a.seed, device=a.device)
         late = res[1:]
-        row = dict(bg_std=bg_std, dps_rate=rate, missing_rmse=np.mean([r['missing_rmse'] for r in late]),
-                   background_rmse=np.mean([r['background_rmse'] for r in late]),
-                   spread=np.mean([r['ensemble_spread'] for r in late]),
-                   **{f'ch{k}': np.mean([r[f'missing_rmse_ch{k}'] for r in late]) for k in range(3)})
+        mr = lambda rows, key: float(np.mean([r[key] for r in rows]))
+        row = dict(config=item, missing_rmse=mr(late, 'missing_rmse'), early=mr(late[:3], 'missing_rmse'),
+                   last3=mr(late[-3:], 'missing_rmse'),
+                   spread=float(np.mean([r['ensemble_spread'] for r in late])),
+                   **{f'ch{k}': mr(late, f'missing_rmse_ch{k}') for k in range(3)})
         rows.append(row)
-        print('SWEEP', {k: round(v, 5) for k, v in row.items()}, flush=True)
+        print('SWEEP', {k: (round(v, 5) if isinstance(v, float) else v) for k, v in row.items()}, flush=True)
         with open(out / 'sweep.csv', 'w', newline='') as f:
             w = csv.DictWriter(f, fieldnames=list(row)); w.writeheader(); w.writerows(rows)
 
