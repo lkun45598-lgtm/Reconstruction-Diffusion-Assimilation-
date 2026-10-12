@@ -6,7 +6,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-CHANNELS = {0: 'Buoyancy b', 1: 'Velocity u_x', 2: 'Velocity u_z'}
+NAMES = {'rb': ('Buoyancy b', 'Velocity u_x', 'Velocity u_z'), 'ns2d': ('Velocity u', 'Velocity v', 'Vorticity omega')}
 
 
 def rmse(a, b, sel=None):
@@ -18,11 +18,12 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--data-dir', default='outputs/cycle')
     p.add_argument('--frames', type=int, nargs='+', default=[1, 5, 10, 15, 20])
-    p.add_argument('--channel', type=int, choices=[0, 1, 2], default=0)
+    p.add_argument('--problem', choices=['rb', 'ns2d'], default='ns2d', help='selects channel names')
+    p.add_argument('--channel', type=int, choices=[0, 1, 2], default=2, help='ns2d: 0 u, 1 v, 2 omega; rb: 0 b, 1 u_x, 2 u_z')
     p.add_argument('--error-max', type=float, default=None, help='error colour limit (default: 99th percentile)')
     p.add_argument('--out', default=None, help='default: <data-dir>/reconstruction_<channel>.png')
     a = p.parse_args()
-    data_dir, ch, name = Path(a.data_dir), a.channel, CHANNELS[a.channel]
+    data_dir, ch, name = Path(a.data_dir), a.channel, NAMES[a.problem][a.channel]
     out = Path(a.out) if a.out else data_dir / f'reconstruction_{name.replace(" ", "_")}.png'
 
     frames = []

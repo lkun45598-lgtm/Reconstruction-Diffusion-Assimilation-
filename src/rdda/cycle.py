@@ -49,6 +49,8 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
                      'analysis_rmse': metric(analysis, xtrue),
                      'missing_rmse': metric(analysis, xtrue, ~mask),
                      'observed_rmse': metric(analysis, xtrue, mask),
+                     **{f'missing_rmse_ch{k}': metric(analysis[..., k:k + 1], xtrue[..., k:k + 1], (~mask)[..., k:k + 1])
+                        for k in range(3)},
                      'background_rmse': None if background is None else metric(background, xtrue),
                      'ensemble_spread': spread,
                      'projection_rmse': info.get('initial_projection_rmse')})

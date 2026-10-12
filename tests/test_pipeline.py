@@ -94,6 +94,7 @@ def test_cycle_wiring(tmp_path):
                            members=1, steps=2, dps_rate=.01, device='cpu')
     assert [r['frame'] for r in rows] == [0, 1, 2] and rows[0]['background_rmse'] is None
     assert (tmp_path / 'frame_0002.npz').exists() and rows[2]['observed_rmse'] < 1e-6 and fc.calls == [1, 1]
+    assert all(f'missing_rmse_ch{k}' in rows[1] for k in range(3))
 
 
 @pytest.mark.parametrize('method', ['obs_only', 'free_run'])
@@ -113,7 +114,8 @@ def test_cycle_baseline_methods(tmp_path, method):
 def test_experiment_summary():
     from rdda.experiments import summarize
     rows = [dict(method='m', frame=1, model_param=1e5, lead_frames=1, analysis_rmse=a, missing_rmse=a,
-                 background_rmse=None, ensemble_spread=None, fcst_rmse_h2=a) for a in (1., 3.)]
+                 background_rmse=None, ensemble_spread=None, fcst_rmse_h2=a,
+                 missing_rmse_ch0=a, missing_rmse_ch1=a, missing_rmse_ch2=a) for a in (1., 3.)]
     s = summarize(rows)
     assert len(s) == 1 and s[0]['n'] == 2 and s[0]['missing_rmse_mean'] == 2. and s[0]['background_rmse_mean'] is None
 

@@ -15,7 +15,8 @@ from rdda.assimilation import make_mask
 from rdda.cycle import METHODS, _relative, add_problem_args, make_forecaster, model_sweep, run_cycle
 from rdda.forecasters import load_trajectory
 
-METRICS = ('analysis_rmse', 'missing_rmse', 'background_rmse', 'ensemble_spread')
+METRICS = ('analysis_rmse', 'missing_rmse', 'background_rmse', 'ensemble_spread',
+           'missing_rmse_ch0', 'missing_rmse_ch1', 'missing_rmse_ch2')
 KEYS = ('model_param', 'lead_frames', 'method', 'frame')
 
 
