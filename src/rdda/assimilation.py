@@ -79,8 +79,14 @@ def metric(pred, truth, mask=None):
 def assimilate(prior, observations, obs_mask, background=None, *,
                members=4, steps=100, t_start=.95, sampler='ode',
                obs_std=0.05, bg_std=0.3, relative_std=False, dps_rate=0.5,
-               seed=42, hard_observation=True, device='cpu'):
+               seed=42, hard_observation=True, init='noise', bg_guidance=None, device='cpu'):
     """Sample analysis using trained model and existing multi-DPS from user code.
+
+    init='noise': start from N(0,I) at t_start (background only acts as a guidance term).
+    init='background': start from the background noised to diffusion time t_start (SDEdit-style), so the
+        background decides the initial state; t_start is then typically small (0.2-0.6).
+    bg_guidance: also guide towards the background during sampling (default: True for init='noise',
+        False for init='background').
 
     Error stds are physical units here. The demo's ratio/strength is a tunable
     approximation; no exact posterior guarantee. Returns members + mean in units.
@@ -99,7 +105,11 @@ def assimilate(prior, observations, obs_mask, background=None, *,
     # obs_std/bg_std: scalar or per-channel; relative_std=True means multiples of the training channel std
     obs_std,bg_std=(np.broadcast_to(np.asarray(v,dtype=np.float64),(3,))*(std.reshape(3) if relative_std else 1.)
                     for v in (obs_std,bg_std))
-    if members<1 or steps<2 or not 0.5<=t_start<=.999 or min(obs_std.min(),bg_std.min())<=0 or dps_rate<0:
+    if init not in ('noise','background'): raise ValueError("init must be 'noise' or 'background'")
+    if init=='background' and background is None: raise ValueError("init='background' needs a background field")
+    if bg_guidance is None: bg_guidance=(init=='noise')
+    t_min=0.5 if init=='noise' else 0.02
+    if members<1 or steps<2 or not t_min<=t_start<=.999 or min(obs_std.min(),bg_std.min())<=0 or dps_rate<0:
         raise ValueError('invalid sampling/likelihood parameters')
     device=torch.device(device)
     sde = SDE(device=device, scheduler=CosineScheduler(
@@ -115,13 +125,19 @@ def assimilate(prior, observations, obs_mask, background=None, *,
     gamma_obs=torch.tensor((std.reshape(3)/obs_std)**2,dtype=torch.float32,device=device).reshape(1,3,1,1)
     guidance=0.5*dps_rate*t_start/steps
     conditions=[]
+    bg=None
     if background is not None:
         bg=tensor_field(normalize(background,mean,std),device).repeat(members,1,1,1)
+    if bg is not None and bg_guidance:
         conditions.append((bg,torch.ones_like(bg),guidance,
                            torch.tensor((std.reshape(3)/bg_std)**2,dtype=torch.float32,device=device).reshape(1,3,1,1),
                            None,'background'))
     conditions.append((y,m,guidance,gamma_obs,None,'obs'))
-    x=torch.randn((members,3,*observations.shape[:2]),device=device)
+    if init=='background':
+        x,_=sde.noisify(bg,torch.full((members,),float(t_start),device=device))
+        x=x.detach().float()
+    else:
+        x=torch.randn((members,3,*observations.shape[:2]),device=device)
     result={'x': x}
     if sampler=='sde':
         result=sde.SDE_Euler_DPS_multi(model,result,t_start,t_start/steps,conditions,debug=False)
@@ -152,6 +168,8 @@ def main():
     p.add_argument('--dps-rate',type=float,default=0.5)
     p.add_argument('--sampler',choices=['ode','sde'],default='ode')
     p.add_argument('--relative-std',action='store_true',help='--obs-std/--bg-std are multiples of each channel std')
+    p.add_argument('--init',choices=['noise','background'],default='noise')
+    p.add_argument('--t-start',type=float,default=None,help='default 0.95 (noise) / 0.4 (background)')
     p.add_argument('--no-hard-observation',action='store_true',help='do not overwrite observed points in the final analysis')
     p.add_argument('--seed',type=int,default=42)
     p.add_argument('--device',default='cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -170,7 +188,7 @@ def main():
     background=validate_field(np.load(a.background),'background') if a.background else None
     ans=assimilate(a.prior,observations,mask,background,members=a.members,steps=a.steps,
                    obs_std=a.obs_std,bg_std=a.bg_std,relative_std=a.relative_std,dps_rate=a.dps_rate,sampler=a.sampler,
-                   seed=a.seed,hard_observation=not a.no_hard_observation,device=a.device)
+                   seed=a.seed,hard_observation=not a.no_hard_observation,init=a.init,t_start=a.t_start or (0.95 if a.init=='noise' else 0.4),device=a.device)
     report={'observation_fraction':float(mask.mean()), 'posterior_obs_rmse':metric(ans['mean'],observations,mask)}
     if truth is not None:
         report['analysis_rmse']=metric(ans['mean'],truth)

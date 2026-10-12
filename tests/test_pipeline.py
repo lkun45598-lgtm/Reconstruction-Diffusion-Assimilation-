@@ -209,3 +209,35 @@ def test_experiment_summary_orders_frames_numerically():
     rows = [dict(method='m', frame=f, model_param=1e5, lead_frames=1, analysis_rmse=1., missing_rmse=1.,
                  background_rmse=None, ensemble_spread=None) for f in (2, 10, 1, 20)]
     assert [r['frame'] for r in summarize(rows)] == [1, 2, 10, 20]
+
+
+def test_background_init_and_bg_guidance(tmp_path):
+    """init='background' starts from the noised background; it needs a background and allows a small t_start."""
+    truth = _truth(1, 9)[0]
+    m = make_mask(truth.shape, .1)
+    obs = np.where(m, truth, 0)
+    ckpt = _tiny_prior(tmp_path)
+    kw = dict(members=2, steps=3, dps_rate=.01, device='cpu')
+    r = assimilate(ckpt, obs, m, background=truth * .9, init='background', t_start=.2, **kw)
+    assert r['mean'].shape == truth.shape and np.isfinite(r['mean']).all()
+    r2 = assimilate(ckpt, obs, m, background=truth * .9, init='background', t_start=.2, bg_guidance=True, **kw)
+    assert np.isfinite(r2['mean']).all()
+    with pytest.raises(ValueError):
+        assimilate(ckpt, obs, m, init='background', t_start=.2, **kw)                 # no background
+    with pytest.raises(ValueError):
+        assimilate(ckpt, obs, m, background=truth, init='noise', t_start=.2, **kw)    # noise init needs t_start >= .5
+
+
+@pytest.mark.parametrize('every,expected', [(0, [1, 0, 0, 0, 0]), (2, [1, 0, 1, 0, 1]), (1, [1, 1, 1, 1, 1])])
+def test_intermittent_assimilation(tmp_path, every, expected):
+    """Data enter at cycle 0 and every K cycles; in between the state is the pure forecast and errors are logged."""
+    from rdda import cycle
+    truth, fc = _truth(6, 4), FakeForecaster()
+    mask = make_mask(truth.shape[1:], .1)
+    rows = cycle.run_cycle(truth, _tiny_prior(tmp_path), fc, mask, analysis_steps=4, assim_every=every, out=tmp_path,
+                           members=1, steps=2, dps_rate=.01, device='cpu')
+    assert [r['assimilated'] for r in rows] == expected
+    for r in rows[1:]:
+        assert r['bg_missing_rmse_ch0'] is not None
+        if not r['assimilated']: assert r['analysis_rmse'] == r['background_rmse'] and r['ensemble_spread'] is None
+    assert bool(np.load(tmp_path / 'frame_0001.npz')['assimilated']) == bool(expected[1])

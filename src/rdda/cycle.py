@@ -17,7 +17,7 @@ METHODS = ('bg_obs', 'obs_only', 'free_run')
 
 
 def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=20, method='bg_obs',
-              eval_horizons=(), out=None, **dps):
+              assim_every=1, eval_horizons=(), out=None, **dps):
     """Run cycles 0..analysis_steps on truth (T,H,W,3); dps kwargs go to assimilate().
 
     Consecutive cycles are lead_frames saved frames apart, so cycle t is scored against truth[t*lead_frames].
@@ -25,9 +25,12 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
     method: bg_obs   = DPS with observations + numerical background (the proposed scheme)
             obs_only = DPS with observations only, no background (no forecast is run)
             free_run = frame 0 analysed from observations, then pure numerical forecast (no assimilation)
+    assim_every (bg_obs only): data enter at cycle 0 and then every `assim_every` cycles; in between the state is
+        the pure numerical forecast. 1 = every cycle (default), 0 = only at cycle 0 (same as free_run).
     """
     if method not in METHODS: raise ValueError(f'method must be one of {METHODS}')
     if lead_frames < 1: raise ValueError('lead_frames must be >= 1')
+    if assim_every < 0: raise ValueError('assim_every must be >= 0')
     if analysis_steps * lead_frames >= len(truth): raise ValueError('trajectory too short for analysis_steps x lead_frames')
     spf = forecaster.steps_per_frame
     seed = dps.pop('seed', 42)
@@ -38,20 +41,23 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
         obs = np.where(mask, xtrue, 0)
         background, info = (None, {}) if t == 0 or method == 'obs_only' else forecaster(analysis, lead_frames * spf)
         spread = None
-        if method == 'free_run' and t > 0:
+        data_in = t == 0 or method == 'obs_only' or (method == 'bg_obs' and assim_every > 0 and t % assim_every == 0)
+        if not data_in:
             analysis = background
         else:
             result = assimilate(prior, obs, mask, background if method == 'bg_obs' else None,
                                 seed=seed + t, **dps)
             analysis = result['mean']
             spread = float(np.sqrt(np.mean(np.square(result['std'], dtype=np.float64))))
-        rows.append({'frame': t, 'truth_frame': idx, 'lead_frames': lead_frames,
+        rows.append({'frame': t, 'truth_frame': idx, 'lead_frames': lead_frames, 'assimilated': int(data_in),
                      'analysis_rmse': metric(analysis, xtrue),
                      'missing_rmse': metric(analysis, xtrue, ~mask),
                      'observed_rmse': metric(analysis, xtrue, mask),
                      **{f'missing_rmse_ch{k}': metric(analysis[..., k:k + 1], xtrue[..., k:k + 1], (~mask)[..., k:k + 1])
                         for k in range(3)},
                      'background_rmse': None if background is None else metric(background, xtrue),
+                     **{f'bg_missing_rmse_ch{k}': None if background is None else
+                        metric(background[..., k:k + 1], xtrue[..., k:k + 1], (~mask)[..., k:k + 1]) for k in range(3)},
                      'ensemble_spread': spread,
                      'projection_rmse': info.get('initial_projection_rmse')})
         for h in eval_horizons:
@@ -61,7 +67,7 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
         if out is not None:
             np.savez_compressed(Path(out) / f'frame_{t:04d}.npz', truth=xtrue,
                                 background=np.zeros((0,), 'f4') if background is None else background,
-                                analysis=analysis, observations=obs, mask=mask)
+                                analysis=analysis, observations=obs, mask=mask, assimilated=np.array(data_in))
     return rows
 
 
@@ -122,10 +128,15 @@ def main(argv=None):
     p.add_argument('--relative-std', action=argparse.BooleanOptionalAction, default=None,
                    help='obs/bg std as multiples of each channel std (default: on for ns2d, off for rb)')
     p.add_argument('--dps-rate', type=float, default=0.5)
+    p.add_argument('--init', choices=['noise', 'background'], default='noise',
+                   help="'background': start DPS from the background noised to --t-start (SDEdit-style)")
+    p.add_argument('--t-start', type=float, default=None, help='default 0.95 (noise init) / 0.4 (background init)')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--no-hard-observation', action='store_true',
                    help='do not overwrite observed points in the analysis (avoids spikes at observation pixels)')
     p.add_argument('--method', choices=METHODS, default='bg_obs')
+    p.add_argument('--assim-every', type=int, default=1,
+                   help='bg_obs: data enter at cycle 0 and every K cycles (1 = every cycle, 0 = only at the start)')
     p.add_argument('--sampler', choices=['ode', 'sde'], default='ode')
     p.add_argument('--device', default='cuda:0' if torch.cuda.is_available() else 'cpu')
     a = p.parse_args(argv)
@@ -136,8 +147,8 @@ def main(argv=None):
     forecaster = make_forecaster(a, value, truth.shape[1:3])
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     rows = run_cycle(truth, a.prior, forecaster, mask, lead_frames=a.lead_frames, analysis_steps=a.analysis_steps,
-                     method=a.method, eval_horizons=a.eval_horizons, out=out, members=a.members,
-                     steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, relative_std=_relative(a), dps_rate=a.dps_rate,
+                     method=a.method, assim_every=a.assim_every, eval_horizons=a.eval_horizons, out=out, members=a.members,
+                     steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, relative_std=_relative(a), dps_rate=a.dps_rate, init=a.init, t_start=a.t_start or (0.95 if a.init == 'noise' else 0.4),
                      sampler=a.sampler, seed=a.seed, hard_observation=not a.no_hard_observation, device=a.device)
     with open(out / 'metrics.csv', 'w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
