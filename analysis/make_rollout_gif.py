@@ -84,7 +84,7 @@ def main():
     nx, nz = rows[0][2][0]['truth'].shape
     asp = nz / nx                                    # true height/width of one panel (RB is 3:1, NS is 1:1)
     row_h = 2.5 * asp + 0.45                         # panel width is ~2.5 in at this figure width
-    fig = plt.figure(figsize=(13.5, nr * row_h + 2.4 + 1.5))
+    fig = plt.figure(figsize=(13.5, nr * row_h + 2.4 + 1.5), dpi=a.dpi)   # canvas dpi sets the GIF/APNG pixel size
     gs = fig.add_gridspec(nr + 1, 7, width_ratios=[1.0, 1.25, 1.25, .05, .4, 1.25, .06],
                           height_ratios=[row_h] * nr + [2.4], wspace=.08, hspace=.25)
     ims, tags, labs, dots, rm_txt = [], [], [], [], []
