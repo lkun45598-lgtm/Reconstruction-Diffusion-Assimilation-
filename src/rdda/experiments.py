@@ -30,7 +30,7 @@ def summarize(rows):
     for r in rows:
         groups.setdefault(tuple(r[k] for k in KEYS), []).append(r)
     out = []
-    for key in sorted(groups, key=lambda k: tuple(str(x) for x in k)):
+    for key in sorted(groups):   # numeric order within each key (frames must not be sorted as strings)
         sel = groups[key]
         row = dict(zip(KEYS, key), n=len(sel))
         for m in METRICS + tuple(_fcst_columns(rows)):

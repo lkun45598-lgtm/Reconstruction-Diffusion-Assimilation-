@@ -202,3 +202,10 @@ def test_relative_and_per_channel_std(tmp_path):
         assert np.isfinite(r['mean']).all()
     with pytest.raises(ValueError):
         assimilate(ckpt, np.where(m, truth, 0), m, obs_std=(.05, 0., .2), **kw)
+
+
+def test_experiment_summary_orders_frames_numerically():
+    from rdda.experiments import summarize
+    rows = [dict(method='m', frame=f, model_param=1e5, lead_frames=1, analysis_rmse=1., missing_rmse=1.,
+                 background_rmse=None, ensemble_spread=None) for f in (2, 10, 1, 20)]
+    assert [r['frame'] for r in summarize(rows)] == [1, 2, 10, 20]
