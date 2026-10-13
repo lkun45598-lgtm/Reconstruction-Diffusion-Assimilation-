@@ -13,11 +13,11 @@ from rdda.assimilation import assimilate, make_mask, metric
 from rdda.forecasters import load_trajectory
 
 
-METHODS = ('bg_obs', 'obs_only', 'free_run')
+METHODS = ('bg_obs', 'obs_only', 'free_run', 'no_assim')
 
 
 def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=20, method='bg_obs',
-              assim_every=1, eval_horizons=(), out=None, **dps):
+              assim_every=1, init_state=None, eval_horizons=(), out=None, **dps):
     """Run cycles 0..analysis_steps on truth (T,H,W,3); dps kwargs go to assimilate().
 
     Consecutive cycles are lead_frames saved frames apart, so cycle t is scored against truth[t*lead_frames].
@@ -25,6 +25,11 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
     method: bg_obs   = DPS with observations + numerical background (the proposed scheme)
             obs_only = DPS with observations only, no background (no forecast is run)
             free_run = frame 0 analysed from observations, then pure numerical forecast (no assimilation)
+            no_assim = never uses observations: starts from the EXACT initial state (optimistic baseline, isolates
+                       the model error) and runs the numerical forecast only; no prior / DPS is involved
+    init_state: (H,W,3) first guess at cycle 0 instead of the exact truth (e.g. a noised initial condition).
+        no_assim starts from it and never assimilates; bg_obs uses it as the background of cycle 0, so with
+        assim_every=K the data at t=0 correct this first guess (bg_obs / no_assim only).
     assim_every (bg_obs only): data enter at cycle 0 and then every `assim_every` cycles; in between the state is
         the pure numerical forecast. 1 = every cycle (default), 0 = only at cycle 0 (same as free_run).
     """
@@ -39,10 +44,16 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
         idx = t * lead_frames
         xtrue = np.asarray(truth[idx], dtype=np.float32)
         obs = np.where(mask, xtrue, 0)
-        background, info = (None, {}) if t == 0 or method == 'obs_only' else forecaster(analysis, lead_frames * spf)
+        if t == 0 and init_state is not None and method == 'bg_obs':
+            background, info = np.asarray(init_state, dtype=np.float32), {}
+        else:
+            background, info = (None, {}) if t == 0 or method == 'obs_only' else forecaster(analysis, lead_frames * spf)
         spread = None
-        data_in = t == 0 or method == 'obs_only' or (method == 'bg_obs' and assim_every > 0 and t % assim_every == 0)
-        if not data_in:
+        data_in = ((t == 0 and method != 'no_assim') or method == 'obs_only'
+                   or (method == 'bg_obs' and assim_every > 0 and t % assim_every == 0))
+        if method == 'no_assim' and t == 0:
+            analysis = xtrue.copy() if init_state is None else np.asarray(init_state, dtype=np.float32)
+        elif not data_in:
             analysis = background
         else:
             result = assimilate(prior, obs, mask, background if method == 'bg_obs' else None,

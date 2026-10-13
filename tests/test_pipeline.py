@@ -241,3 +241,57 @@ def test_intermittent_assimilation(tmp_path, every, expected):
         assert r['bg_missing_rmse_ch0'] is not None
         if not r['assimilated']: assert r['analysis_rmse'] == r['background_rmse'] and r['ensemble_spread'] is None
     assert bool(np.load(tmp_path / 'frame_0001.npz')['assimilated']) == bool(expected[1])
+
+
+def test_no_assim_baseline_uses_no_observations_and_no_prior(tmp_path):
+    """Starts from the exact state, forecasts only: no prior is loaded, no DPS runs, nothing is assimilated."""
+    from rdda import cycle
+    truth, fc = _truth(6, 8), FakeForecaster()
+    mask = make_mask(truth.shape[1:], .1)
+    rows = cycle.run_cycle(truth, tmp_path / 'does_not_exist.pt', fc, mask, analysis_steps=4, method='no_assim',
+                           out=tmp_path, members=1, steps=2, device='cpu')
+    assert [r['assimilated'] for r in rows] == [0] * 5 and all(r['ensemble_spread'] is None for r in rows)
+    assert rows[0]['analysis_rmse'] == 0.0 and rows[1]['analysis_rmse'] > 0 and fc.calls == [1] * 4
+    assert not bool(np.load(tmp_path / 'frame_0000.npz')['assimilated'])
+
+
+def test_enkf_matches_kalman_and_localizes():
+    from rdda.enkf import enkf_analysis, gaspari_cohn
+    rng = np.random.default_rng(0)
+    ens = rng.normal(1.0, 2.0, (100000, 1, 1, 1))
+    a = enkf_analysis(ens, np.array([[[4.0]]]), np.ones((1, 1, 1), bool), 1.0, rng=1)
+    assert abs(a.mean() - 3.4) < 0.05 and abs(a.var() - 0.8) < 0.05          # Kalman: mean 3.4, var 0.8
+    gc = gaspari_cohn(np.array([0., 1., 2., 3.]), 1.0)
+    assert gc[0] == 1 and 0 < gc[1] < 1 and gc[2] == 0 and gc[3] == 0
+    ens = rng.normal(0, 1, (30, 12, 12, 1)); mask = np.zeros((12, 12, 1), bool); mask[2, 2, 0] = True
+    obs = np.full((12, 12, 1), 5.0)
+    far = enkf_analysis(ens, obs, mask, .1, loc_radius=1.5, rng=2)[:, 8, 8, 0]            # beyond 2*radius
+    assert np.allclose(far, ens[:, 8, 8, 0])                                              # untouched
+    near = enkf_analysis(ens, obs, mask, .1, loc_radius=1.5, rng=2)[:, 2, 2, 0].mean()
+    assert near > 3.5                                                                     # pulled to the observation
+
+
+def test_balance_diagnostics_separate_balanced_from_noise():
+    from rdda.diagnostics import ns2d_balance
+    from rdda.ns2d.solver import NSConfig, NSSolver
+    s = NSSolver(NSConfig(n=32, dt=1e-2, device='cpu'))
+    g = np.linspace(0, 1, 32, endpoint=False); gx, gy = np.meshgrid(g, g, indexing='ij')
+    w = (np.sin(2 * np.pi * gx) * np.cos(4 * np.pi * gy)).astype('f4')
+    ok = s.to_fields(w)
+    bad = ok + 0.05 * np.random.default_rng(0).standard_normal(ok.shape).astype('f4') * np.array([1, 1, 0], 'f4')
+    assert ns2d_balance(ok)['div_rel'] < 1e-3 and ns2d_balance(ok)['vort_resid_rel'] < 1e-3
+    assert ns2d_balance(bad)['div_rel'] > 0.1 and ns2d_balance(bad)['vort_resid_rel'] > 0.1
+
+
+def test_init_state_is_the_first_guess(tmp_path):
+    """no_assim starts from init_state; bg_obs uses it as the cycle-0 background and then assimilates."""
+    from rdda import cycle
+    truth = _truth(5, 11); fc = FakeForecaster()
+    mask = make_mask(truth.shape[1:], .1)
+    guess = truth[0] + 1.0
+    r = cycle.run_cycle(truth, tmp_path / 'x.pt', fc, mask, analysis_steps=3, method='no_assim', init_state=guess,
+                        members=1, steps=2, device='cpu')
+    assert abs(r[0]['analysis_rmse'] - 1.0) < 1e-5 and r[0]['assimilated'] == 0
+    r = cycle.run_cycle(truth, _tiny_prior(tmp_path), fc, mask, analysis_steps=2, method='bg_obs', assim_every=2,
+                        init_state=guess, members=1, steps=2, dps_rate=.01, device='cpu')
+    assert abs(r[0]['background_rmse'] - 1.0) < 1e-5 and r[0]['assimilated'] == 1 and r[1]['assimilated'] == 0
