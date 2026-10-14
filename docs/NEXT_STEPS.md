@@ -1,0 +1,104 @@
+# 交接说明：下一步要做什么
+
+> 写给新对话的 Claude。先读本文件和仓库根目录的 `CLAUDE.md`（含用户的协作习惯：全程中文、先说目的再动手、结论要有数据、长任务放 tmux、`git push` 只在用户要求时做、删除前确认）。
+
+## 1. 项目一句话
+
+无条件扩散先验 + 数值求解器背景场 + 稀疏观测，逐帧循环同化（NS2D 为主线，RB 已分离）。
+核心问题：只有约 1% 稀疏观测、数值模式有误差时，如何得到贴合观测又符合物理的完整流场。
+
+## 2. 当前状态（必须先核实，别照抄）
+
+- 环境：`/home/lz/miniconda3/envs/dedalus3/bin/python`（新会话默认的 `python` 是 base 环境，会找不到 `rdda`）。
+- NS2D 先验：`outputs/ns2d_prior/best.pt`（c=48，周期边界，60 epoch，验证损失 0.01208）。
+- NS2D 数据：`data/ns2d/split.json`（`source` 字段是原始数据目录，只读不拷贝；案例 `0002` 是本文所有实验用的测试 case，路径 = `<source>/0002/trajectory.npy`，形状 `(H,W,T,3)`）。
+- 先 `git status` 和 `git log origin/main..HEAD --oneline`：本地有若干**未推送**的提交，用户没说推送就不要推。
+- 先 `nvidia-smi`：GPU 常被他人占用，用 `CUDA_VISIBLE_DEVICES` 挑空闲卡；别动别人的进程。
+- 长任务一律 `tmux new-session -d -s <名字> "... | tee 日志"`。
+
+## 3. 已有结论（均为 NS2D 单个 case 0002、1% 观测，仅为初步结论）
+
+产物在 `outputs/study/{noise,enkf,recon}/`（`.csv` + `.png` + `.pdf`），绘图脚本 `analysis/plot_study_ns2d.py`，实验脚本 `analysis/study_ns2d.py`（子命令 `noise` / `enkf` / `recon`）。
+
+1. **t=0 加噪声（noise.png）**：不同化时误差随预报放大；扩散先验+DPS 每 1.0 时间单位同化一次，能消除初值噪声影响（t=10 时误差 0.07~0.11，几乎与噪声 0~40% std(ω) 无关）。初值完美时同化反而把误差从 0 抬到 0.006。
+2. **平衡性**：DPS 分析场相对散度全尺度约 0.2，真值约 1e-4。已验证：**不是硬覆盖造成的**（有无覆盖几乎相同）；**大部分来自小尺度噪声被求导放大**，只保留大尺度（k≤16）后约 0.01，但仍比真值（5e-5）高约 200 倍。所以准确说法是"全尺度约 2000 倍，大尺度约 200 倍"。
+3. **与 EnKF 对比（已重做，2026-10-14，旧结论"基本持平"作废）**：公平起点（EnKF 集合以 DPS 第 0 步分析场为中心）、EnKF 与 DPS 都在验证 case 0006 上调参后，在 case 0002 上对比：全程平均误差 DPS 0.0131，最优 EnKF（膨胀 3.0、局地化 20 像素、20 成员）0.0204；不调参的 DPS 0.0356。DPS 散度全尺度约 0.2，局地化 EnKF（投影前）约 0.007。详见 README §5.5，图在 `outputs/study/enkf/`。
+4. **重建时加不加背景（recon.png）**：背景准（误差≤5% std(ω)）时，"从加噪背景出发"最好（5% 时 0.0143，对比只用观测 0.0182、背景本身 0.0304）；背景差（≥10%）时加背景反而更差；"背景作引导"明显不如"从背景出发"。三种做法散度都约 0.2。
+5. **早先的循环同化结果**（`outputs/rollout_full/`）：数据进来时误差下降只在流动变化大的阶段成立；早期（流动几乎静止）数据进来反而让 u 的误差上升（中位数约 +40%）。融合（背景+观测）在 NS2D 上**没有**稳定优于只用观测（`obs_only`）。
+
+## 4. 待办（按优先级）
+
+### A. 重做 EnKF 对比 —— 已完成（见 §3 第 3 条与 README §5.5；以下为当时的问题描述，仅供参考）
+
+现有问题（务必先理解）：
+- 图里 (b) ω 误差与 (a) 几乎重合 → 删；(c) 集合离散度跨方法不可比 → 删（若要保留，画"离散度/误差"之比）；(e) 与散度冗余 → 删。
+- **(d) 散度会误导**：`run_enkf_cycle` 在 EnKF 分析后调用 `forecaster.consistent` 用 ω 重建了 u、v，所以 EnKF 散度≈0 是人为投影的结果。要在**投影之前**测原始分析的平衡（已手测：无局地化时仍为 0，加局地化约 1e-3，是 DPS 的约 1/150）。
+- **起点不公平**：EnKF 初始集合以真值为中心（`--init-std 0.1`），DPS 第 0 步只有观测。要改成 EnKF 也只从第 0 步观测初始化（例如用观测做一次简单插值/先验均值作中心，或用 `obs_only` 的第 0 步 DPS 结果作中心）。
+- EnKF 的膨胀/局地化半径是随手设的：在**另一个测试 case**上扫一小组（如膨胀 1.0/1.1/1.2/1.4，半径 4/8/12/16 像素）选最好，再放进对比。
+
+目标图（3 个子图）：(a) 误差随时间；(b) 投影前的散度（全尺度和 k≤16 各一组，带真值参考线）；(c) 数据进来时的误差变化（%）。预计重跑 30~40 分钟。
+
+### B. 图 1、图 3 的修改
+
+- 散度都同时画"全尺度"和"k≤16"两组，并在说明里写明尺度（`rdda.diagnostics` 里目前只有全尺度，需要加低通版本）。
+- 图 1：噪声图案目前 5 个幅度共用同一个样本，要重复多个随机样本，画均值加范围（约 20~30 分钟）。
+- 图 3：删 (b)（与 (a) 重合）；多取几个时刻，加误差条；说明里写明背景误差是人造平滑误差，不等于求解器参数失配。
+
+### C. 尚未验证、需要用户拍板的方法问题
+
+1. 把"从加噪背景出发"（`--init background --t-start 0.4`）接进循环同化，是否优于现在的"背景作引导"？目前只在单帧重建里验证过，循环里没跑。
+2. DPS 分析场的 u、v 不满足不可压缩：采样后用 ω 重建 u、v 是自然的修法，**还没做，也没验证它对误差的影响**。
+3. 融合不如 `obs_only` 的问题还没解决（背景越强越差、信息不随循环累积、DPS 有采样噪声底噪）。
+
+### D. 旧样式的图还没重画
+
+误差迭代图（`analysis/plot_error_curves.py`）、滚动演化动图（`analysis/make_rollout_gif.py`）、数据进来前后对比图（`analysis/plot_assimilation_effect.py`）、早先的 5% 观测对比图。问题：措辞（"Scheme 1/2"）、未统一的坐标轴、没有 PDF。已重画的三张研究图的规范可作模板（完整方法名、非量纲时间轴、子图编号、共享纵轴、对数轴用普通小数刻度、输出 PNG+PDF）。
+
+### E. 其他
+
+- 误差迭代图/动图里还没有 `obs_only`（只有观测、没有求解器）和 `no_assim`（无同化）两条对照线；`run_cycle` 已支持这两个方法，需要在完整演化（NS2D 201 步、RB 100 步）上各跑一遍。
+- 用户要求给图 1~3 写介绍文字（图注+结论）。图 1、图 3 的草稿已写好，见 §5；图 2 等重做后再补。
+
+## 5. 图注草稿（已按核实后的数字修正）
+
+**图 1　初始条件含噪声时的误差演化与平衡性。** 在 t=0 的初始状态（ω 通道，u、v 由 ω 重建）上叠加空间相关噪声，幅度为 0、5%、10%、20%、40% 的 std(ω)。上排：未观测点上的误差（u、v、ω 合并）；橙线为无同化（仅数值预报，全程不使用观测），蓝线为扩散先验加 DPS，每 1.0 个时间单位同化一次 1% 的稀疏观测。下排：同化后速度场的相对散度，虚线为真值水平（约 1e-4）。
+不同化时初值噪声随预报放大，t=10 时误差从 0.19（无噪声）增至 0.57（40% 噪声）；同化后误差降到 0.07~0.11，且与初始噪声大小几乎无关。DPS 同化后速度场的全尺度相对散度约 0.2，其中大部分来自小尺度分量被求导放大，仅保留大尺度（k≤16）时约 0.01，仍比真值高约两个数量级，说明分析场在大尺度上也不满足不可压缩；该不平衡只出现在观测进入的时刻，随后的预报由 ω 重建速度，平衡自动恢复。初值完美时，同化反而使误差从 0 升至 0.006。
+
+**图 3　单帧重建中背景场的作用。** 仅由 1% 稀疏观测重建完整流场；背景取为真值加平滑误差（0%~40% std(ω)），横轴为背景误差，纵轴为未观测点误差，取多个时刻的平均。三种做法：不用背景；背景作为 DPS 引导项（从噪声开始采样）；从加噪背景出发采样。虚线为背景本身的误差。
+背景准确时使用背景明显提高精度：背景误差 5% 时，从背景出发的重建误差为 0.0143，低于只用观测（0.0182）和背景本身（0.0304）；背景误差超过约 5%~10% 后，使用背景比不使用更差。从背景出发优于仅作引导项（误差 20% 时 0.047 对 0.088）。三种做法重建场的散度均约 0.2（全尺度），与背景好坏基本无关。
+注：背景误差为人为加入的平滑误差，不等同于数值模式参数失配造成的误差；"从背景出发"的 t=0.4 与"作引导"的 bg_std=0.3 均未调优。
+
+## 6. 复现命令
+
+```bash
+PY=/home/lz/miniconda3/envs/dedalus3/bin/python
+SRC=$($PY -c "import json;print(json.load(open('data/ns2d/split.json'))['source'])")
+CASE=$SRC/0002/trajectory.npy
+
+# 三个研究实验（各约 20~40 分钟，放 tmux，选空闲 GPU）
+$PY analysis/study_ns2d.py noise --case $CASE --out outputs/study/noise --start-frame 100 --analysis-steps 100 --levels 0 0.05 0.1 0.2 0.4 --every 10 --device cuda:0
+$PY analysis/study_ns2d.py enkf  --case $CASE --out outputs/study/enkf  --start-frame 0 --analysis-steps 200 --every 10 --enkf-members 20 --device cuda:0
+$PY analysis/study_ns2d.py recon --case $CASE --out outputs/study/recon --start-frame 0 --frames 40 80 120 160 190 --bg-errors 0 0.02 0.05 0.1 0.2 0.4 --members 8 --device cuda:0
+$PY analysis/plot_study_ns2d.py --dir outputs/study/<noise|enkf|recon>
+
+# 测试
+$PY -m pytest -q tests
+```
+
+## 7. 关键代码位置
+
+| 文件 | 内容 |
+|---|---|
+| `src/rdda/assimilation.py` | `assimilate()`：DPS；`init='noise'|'background'`、`bg_guidance`、`hard_observation`、`relative_std` |
+| `src/rdda/cycle.py` | `run_cycle()`：方法 `bg_obs` / `obs_only` / `free_run` / `no_assim`，`assim_every`，`init_state` |
+| `src/rdda/enkf.py` | 随机 EnKF（膨胀 + Gaspari-Cohn 局地化）、`run_enkf_cycle` |
+| `src/rdda/diagnostics.py` | `ns2d_balance`（散度、ω 与速度一致性，谱方法）、`rb_balance` |
+| `src/rdda/forecasters.py` | `NSForecaster`（`forecast_many`、`consistent`、`balance`）、`RBForecaster` |
+| `src/rdda/ns2d/solver.py` | 伪谱 NS2D 求解器（参照数据生成脚本重写；文件头和 README 里还没写明出处与许可，写论文前要补） |
+| `analysis/study_ns2d.py`、`plot_study_ns2d.py` | 本文三个研究实验及绘图 |
+
+## 8. 其他需要注意
+
+- 数据由第三方（lzy）生成，用于论文前请确认使用许可。
+- 所有结论均来自单个 case、单个 seed，推广前要换 case、多 seed。
+- 不要重复我犯过的错：①引用没测过的数值（如曾画过无依据的参考线）；②图例直接用代码名；③把 EnKF 投影后的指标当成 EnKF 本身的性质。

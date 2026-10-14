@@ -56,8 +56,9 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
         elif not data_in:
             analysis = background
         else:
-            result = assimilate(prior, obs, mask, background if method == 'bg_obs' else None,
-                                seed=seed + t, **dps)
+            bg = background if method == 'bg_obs' else None
+            kw = dps if bg is not None else {k: v for k, v in dps.items() if k not in ('init', 't_start')}   # no background yet -> sample from noise
+            result = assimilate(prior, obs, mask, bg, seed=seed + t, **kw)
             analysis = result['mean']
             spread = float(np.sqrt(np.mean(np.square(result['std'], dtype=np.float64))))
         rows.append({'frame': t, 'truth_frame': idx, 'lead_frames': lead_frames, 'assimilated': int(data_in),

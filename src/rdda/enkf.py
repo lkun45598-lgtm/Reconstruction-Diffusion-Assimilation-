@@ -62,20 +62,22 @@ def enkf_analysis(ens, obs, mask, obs_std, *, inflation=1.0, loc_radius=None, pe
 
 
 def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relative_std=True, std_ref=None,
-                   init_std=0.0, inflation=1.1, loc_radius=None, analysis_steps=20, lead_frames=1, assim_every=1,
+                   init_std=0.0, init_center=None, inflation=1.1, loc_radius=None, analysis_steps=20, lead_frames=1, assim_every=1,
                    seed=0, periodic=(True, True), out=None):
     """EnKF rollout with the same bookkeeping/columns as rdda.cycle.run_cycle (forecast model = `forecaster`).
 
-    Initial ensemble: truth[0] + init_std * std_ref * N(0,1) on every variable (then made consistent).
+    Initial ensemble: (init_center if given, else truth[0]) + init_std * std_ref * N(0,1) on every variable (then made consistent).
     obs_std is relative to std_ref when relative_std. assim_every = K: observations assimilated at t=0 and
     every K steps (0 = only at t=0); in between the ensemble is just forecast.
+    init_center: (H,W,C) first guess that already contains the t=0 observations -> the t=0 analysis is skipped
+    (no double use of the data). The raw (pre-projection) balance of the analysis mean is stored as raw_*/raw_lp_*.
     """
     from rdda.assimilation import metric
     rng = np.random.default_rng(seed)
     std_ref = np.ones(truth.shape[-1]) if std_ref is None else np.asarray(std_ref, dtype=np.float64)
     ostd = np.asarray(obs_std) * (std_ref if relative_std else 1.0)
     spf = forecaster.steps_per_frame
-    x0 = np.asarray(truth[0], dtype=np.float32)
+    x0 = np.asarray(truth[0] if init_center is None else init_center, dtype=np.float32)
     ens = np.stack([forecaster.consistent(x0 + init_std * std_ref * rng.standard_normal(x0.shape).astype('f4'))
                     for _ in range(members)])
     rows = []
@@ -84,9 +86,14 @@ def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relativ
         if t > 0: ens = forecaster.forecast_many(ens, lead_frames * spf)
         bg = ens.mean(0)
         data_in = t == 0 or (assim_every > 0 and t % assim_every == 0)
-        if data_in:
+        raw = {}
+        if data_in and not (t == 0 and init_center is not None):
             ens = enkf_analysis(ens, np.where(mask, xtrue, 0), mask, ostd, inflation=inflation,
                                 loc_radius=loc_radius, periodic=periodic, rng=rng)
+            if hasattr(forecaster, 'balance'):
+                m_ = ens.mean(0)
+                raw = {**{f'raw_{k}': v for k, v in forecaster.balance(m_).items()},
+                       **{f'raw_lp_{k}': v for k, v in forecaster.balance(m_, 16).items()}}
             ens = np.stack([forecaster.consistent(e) for e in ens])
         an = ens.mean(0)
         miss = ~mask
@@ -98,7 +105,7 @@ def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relativ
                      'background_rmse': None if t == 0 else metric(bg, xtrue),
                      **{f'bg_missing_rmse_ch{k}': None if t == 0 else
                         metric(bg[..., k:k + 1], xtrue[..., k:k + 1], miss[..., k:k + 1]) for k in range(truth.shape[-1])},
-                     'ensemble_spread': float(np.sqrt(np.mean(ens.var(0, ddof=1)))), 'projection_rmse': None})
+                     'ensemble_spread': float(np.sqrt(np.mean(ens.var(0, ddof=1)))), 'projection_rmse': None, **raw})
         if out is not None:
             np.savez_compressed(f'{out}/frame_{t:04d}.npz', truth=xtrue,
                                 background=np.zeros((0,), 'f4') if t == 0 else bg, analysis=an,

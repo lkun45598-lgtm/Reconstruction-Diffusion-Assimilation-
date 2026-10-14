@@ -46,6 +46,7 @@ def add_balance(rows, out_dir, forecaster):
     for r in rows:
         an = np.load(Path(out_dir) / f'frame_{r["frame"]:04d}.npz')['analysis']
         r.update({f'an_{k}': v for k, v in forecaster.balance(an).items()})
+        r.update({f'an_lp_{k}': v for k, v in forecaster.balance(an, 16).items()})
     return rows
 
 
@@ -58,7 +59,7 @@ def noise(a):
     truth, mask, fc = setup(a)
     truth = np.asarray(truth)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    rng = np.random.default_rng(a.seed)
+    rng = np.random.default_rng(a.noise_seed)
     shape = gaussian_filter(rng.standard_normal(truth.shape[1:3]), a.corr_len, mode='wrap')
     shape = (shape / shape.std()).astype('f4')                    # one fixed noise pattern, scaled by the level
     rows = []
@@ -72,13 +73,15 @@ def noise(a):
                             init_state=first_guess, out=d, members=a.members, steps=a.dps_steps, obs_std=.05,
                             bg_std=.3, relative_std=True, seed=a.seed, device=a.device)
             res = add_balance(res, d, fc)
-            rows += [dict(level=level, scheme=name, **r) for r in res]
+            rows += [dict(level=level, scheme=name, sample=a.noise_seed, **r) for r in res]
             pd.DataFrame(rows).to_csv(out / 'noise.csv', index=False)
     print('saved', out / 'noise.csv')
 
 
 def enkf(a):
-    """(B) EnKF (inflation, localization) vs DPS on the same observations; error + balance of the analysis."""
+    """(B) EnKF vs DPS on the same observations. Fair start: both begin from the observations only (the EnKF
+    ensemble is centred on DPS's t=0 analysis, the t=0 EnKF update is skipped). Balance of the EnKF is measured
+    BEFORE the omega->(u,v) projection (raw_*), at full scale and |k|<=16 (lp)."""
     truth, mask, fc = setup(a)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -86,15 +89,58 @@ def enkf(a):
         d = out / name; d.mkdir(exist_ok=True)
         if name.startswith('dps'):
             res = run_cycle(np.asarray(truth), a.prior, fc, mask, analysis_steps=a.analysis_steps, method='bg_obs',
-                            assim_every=a.every, out=d, members=a.members, steps=a.dps_steps, obs_std=.05,
-                            bg_std=.3, relative_std=True, seed=a.seed, device=a.device)
+                            assim_every=a.every, out=d, members=a.members, steps=a.dps_steps, relative_std=True,
+                            seed=a.seed, device=a.device, **kw)
+            center = np.load(d / 'frame_0000.npz')['analysis']
         else:
             res = run_enkf_cycle(np.asarray(truth), fc, mask, members=a.enkf_members, obs_std=.05, std_ref=STD,
-                                 analysis_steps=a.analysis_steps, assim_every=a.every, seed=a.seed, out=str(d), **kw)
+                                 analysis_steps=a.analysis_steps, assim_every=a.every, seed=a.seed, out=str(d),
+                                 init_center=center, init_std=a.init_std, **kw)
         res = add_balance(res, d, fc)
         rows += [dict(scheme=name, **r) for r in res]
         pd.DataFrame(rows).to_csv(out / 'enkf.csv', index=False)
     print('saved', out / 'enkf.csv')
+
+
+def enkf_sweep(a):
+    """Choose EnKF inflation x localization radius on a different (validation) case; score = mean unobserved RMSE."""
+    truth, mask, fc = setup(a)
+    truth = np.asarray(truth)
+    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    r0 = assimilate(a.prior, np.where(mask, truth[0], 0), mask, members=a.members, steps=a.dps_steps, obs_std=.05,
+                    bg_std=.3, relative_std=True, seed=a.seed, device=a.device)
+    rows = []
+    for infl in a.inflations:
+        for rad in a.radii:
+            res = run_enkf_cycle(truth, fc, mask, members=a.enkf_members, obs_std=.05, std_ref=STD,
+                                 analysis_steps=a.analysis_steps, assim_every=a.every, seed=a.seed,
+                                 init_center=r0['mean'], init_std=a.init_std, inflation=infl, loc_radius=rad)
+            e = [r['missing_rmse'] for r in res]
+            rows.append(dict(inflation=infl, radius=rad, mean_rmse=float(np.mean(e)), final_rmse=e[-1]))
+            print(rows[-1], flush=True)
+            pd.DataFrame(rows).to_csv(out / 'enkf_sweep.csv', index=False)
+
+
+def dps_sweep(a):
+    """Tune DPS on a validation case; each config 'bg_std:dps_rate:obs_std:init[:t_start]'; score = mean unobserved RMSE."""
+    truth, mask, fc = setup(a)
+    truth = np.asarray(truth)
+    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for cfg in a.grid:
+        f = cfg.split(':')
+        kw = dict(bg_std=float(f[0]), dps_rate=float(f[1]), obs_std=float(f[2]), init=f[3])
+        if f[3] == 'background': kw['t_start'] = float(f[4])
+        try:
+            res = run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method='bg_obs',
+                            assim_every=a.every, members=a.members, steps=a.dps_steps, relative_std=True, seed=a.seed,
+                            device=a.device, **kw)
+            e = [r['missing_rmse'] for r in res]
+            rows.append(dict(config=cfg, mean_rmse=float(np.mean(e)), final_rmse=e[-1]))
+        except FloatingPointError:                                  # DPS diverged for this setting
+            rows.append(dict(config=cfg, mean_rmse=float('nan'), final_rmse=float('nan')))
+        print(rows[-1], flush=True)
+        pd.DataFrame(rows).to_csv(out / 'dps_sweep.csv', index=False)
 
 
 def recon(a):
@@ -121,7 +167,8 @@ def recon(a):
                 rows.append(dict(frame=f, bg_sigma=sigma, scheme=label,
                                  bg_missing_rmse=metric(bg, xt, ~mask), missing_rmse=metric(m, xt, ~mask),
                                  **{f'missing_rmse_ch{k}': metric(m[..., k:k + 1], xt[..., k:k + 1], (~mask)[..., k:k + 1])
-                                    for k in range(3)}, **{f'an_{k}': v for k, v in ns2d_balance(m).items()}))
+                                    for k in range(3)}, **{f'an_{k}': v for k, v in ns2d_balance(m).items()},
+                                 **{f'an_lp_{k}': v for k, v in ns2d_balance(m, 16).items()}))
                 print(rows[-1], flush=True)
         pd.DataFrame(rows).to_csv(out / 'recon.csv', index=False)
     print('saved', out / 'recon.csv')
@@ -134,10 +181,25 @@ def main():
     n.add_argument('--levels', type=float, nargs='+', default=[0.0, 0.05, 0.1, 0.2, 0.4], help='x std(omega)')
     n.add_argument('--corr-len', type=float, default=6.0, help='noise correlation length in pixels')
     n.add_argument('--every', type=int, default=10)
+    n.add_argument('--noise-seed', type=int, default=0, help='which random noise pattern (sample id)')
     e = sub.add_parser('enkf'); common(e)
     e.add_argument('--every', type=int, default=10)
     e.add_argument('--enkf-members', type=int, default=20)
     e.add_argument('--init-std', type=float, default=0.1)
+    e.add_argument('--dps-obs-std', type=float, default=.05, help='tuned DPS (dps_sweep)')
+    e.add_argument('--dps-rate', type=float, default=2.0)
+    e.add_argument('--dps-t-start', type=float, default=0.4)
+    e.add_argument('--inflation', type=float, default=1.2, help='from enkf_sweep')
+    e.add_argument('--radius', type=float, default=8.0, help='from enkf_sweep')
+    w = sub.add_parser('enkf_sweep'); common(w)
+    w.add_argument('--every', type=int, default=10)
+    w.add_argument('--enkf-members', type=int, default=20)
+    w.add_argument('--init-std', type=float, default=0.1)
+    w.add_argument('--inflations', type=float, nargs='+', default=[1.0, 1.1, 1.2, 1.4])
+    w.add_argument('--radii', type=float, nargs='+', default=[4, 8, 12, 16])
+    d = sub.add_parser('dps_sweep'); common(d)
+    d.add_argument('--every', type=int, default=10)
+    d.add_argument('--grid', nargs='+', required=True)
     r = sub.add_parser('recon'); common(r)
     r.add_argument('--frames', type=int, nargs='+', default=[60, 100, 140, 180])
     r.add_argument('--bg-errors', type=float, nargs='+', default=[0.0, 0.02, 0.05, 0.1, 0.2], help='x std(omega)')
@@ -145,11 +207,12 @@ def main():
     r.add_argument('--t-start', type=float, default=0.4)
     a = p.parse_args()
     if a.cmd == 'enkf':
-        a.configs = [('dps', {}),
-                     ('enkf_plain', dict(inflation=1.0, loc_radius=None, init_std=a.init_std)),
-                     ('enkf_inflation', dict(inflation=1.2, loc_radius=None, init_std=a.init_std)),
-                     ('enkf_infl_loc', dict(inflation=1.2, loc_radius=8.0, init_std=a.init_std))]
-    {'noise': noise, 'enkf': enkf, 'recon': recon}[a.cmd](a)
+        a.configs = [('dps_default', dict(obs_std=.05, bg_std=.3)),
+                     ('dps', dict(obs_std=a.dps_obs_std, dps_rate=a.dps_rate, init='background', t_start=a.dps_t_start)),
+                     ('enkf_plain', dict(inflation=1.0, loc_radius=None)),
+                     ('enkf_inflation', dict(inflation=a.inflation, loc_radius=None)),
+                     ('enkf_infl_loc', dict(inflation=a.inflation, loc_radius=a.radius))]
+    {'noise': noise, 'enkf': enkf, 'enkf_sweep': enkf_sweep, 'dps_sweep': dps_sweep, 'recon': recon}[a.cmd](a)
 
 
 if __name__ == '__main__':

@@ -30,7 +30,7 @@ class RBForecaster:
             from rdda.solver.rb_equations import build_solver
             _, _, grids = build_solver(self.config)
             self._z = np.broadcast_to(grids[1], (self.config.nx, self.config.nz))[0].copy()
-        return rb_balance(field, self._z, self.config.lx)
+        return rb_balance(field, self._z, self.config.lx, self.config.lz)
 
 
 class NSForecaster:
@@ -50,9 +50,9 @@ class NSForecaster:
         """Rebuild (u,v) from omega so a perturbed omega stays an exactly divergence-free flow."""
         return self.solver.to_fields(np.asarray(field[..., 2], dtype=np.float32))
 
-    def balance(self, field):
+    def balance(self, field, kmax=None):
         from rdda.diagnostics import ns2d_balance
-        return ns2d_balance(field)
+        return ns2d_balance(field, kmax)
 
 
 def load_trajectory(problem, path):
