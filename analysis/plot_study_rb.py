@@ -63,7 +63,7 @@ def plot_noise(d):
                 axes[1, j].fill_between(t, st['min'], st['max'], color=col, alpha=.15, lw=0)
         axes[1, j].axhline(s.truth_div_rel.median(), color=C['ref'], ls='--', lw=1.1, label='Reference flow (truth)')
         axes[0, j].set_title(f'Initial noise: {lv * 100:g}% of reference std' if lv else 'No initial noise', fontsize=10)
-        axes[1, j].set_xlabel(TIME_LABEL)
+        axes[0, j].set_xlabel(TIME_LABEL)
     for a in axes.ravel(): a.set_yscale('log')
     for a in axes[0]: plain_log(a)
     for a in axes[1]: plain_log(a)
@@ -143,24 +143,25 @@ def plot_enkf3(d, infl, rx, rz):
              'enkf_infl_loc': f'EnKF + inflation ({infl:g}) + localization ({rx:g} x {rz:g} length units)'}
     cols = {'dps': C['dps'], 'enkf_plain': C['enkf0'], 'enkf_inflation': C['enkf1'], 'enkf_infl_loc': C['enkf2']}
     order = [n for n in names if n in s.scheme.unique()]; cases = sorted(s.case.unique())
-    fig, ax = plt.subplots(1, 3, figsize=(17, 4.8), gridspec_kw={'width_ratios': [1.1, 1.3, 1]})
+    fig, ax = plt.subplots(1, 3, figsize=(17, 4.8), gridspec_kw={'width_ratios': [1.1, 1.3, 1.3]})
     w = .8 / len(order)
     for i, n in enumerate(order):
         v = [s[(s.case == c) & (s.scheme == n)].missing_rmse.mean() for c in cases]
         ax[0].bar(np.arange(len(cases)) + i * w, v, w, color=cols[n], label=names[n])
-        e = s[(s.scheme == n) & (s.assimilated == 1) & (s.frame > 0)]
-        ch = (e.missing_rmse - e.background_rmse) / e.background_rmse * 100
-        ax[2].boxplot([ch[e.case == c] for c in cases], positions=np.arange(len(cases)) + i * w, widths=w * .85, patch_artist=True,
-                      boxprops=dict(facecolor=cols[n], alpha=.8), medianprops=dict(color='k'), showfliers=False)
     for n in order:
         g = s[s.scheme == n].groupby('frame').missing_rmse.mean()
         ax[1].plot(g.index * FRAME_DT, g, color=cols[n], lw=2.2 if n == 'dps' else 1.5, label=names[n])
+    for n in order:                                           # divergence of the analysis (EnKF: before the model restart)
+        col = 'an_div_rel' if n == 'dps' else 'raw_div_rel'
+        e = s[(s.scheme == n) & (s.assimilated == 1)].groupby('frame')[col].mean()
+        ax[2].plot(e.index * FRAME_DT, e, 'o-', ms=3, color=cols[n], lw=2.2 if n == 'dps' else 1.5)
+    ax[2].axhline(s.truth_div_rel.median(), color=C['ref'], ls='--', lw=1.1, label='Reference flow (truth)')
+    ax[2].set_xlabel(TIME_LABEL); ax[2].set_ylabel(DIV_LABEL); plain_log(ax[2])
     ax[0].set_xticks(np.arange(len(cases)) + (len(order) - 1) * w / 2, [f'test case {c}' for c in cases])
-    ax[2].set_xticks(np.arange(len(cases)) + (len(order) - 1) * w / 2, [f'case {c}' for c in cases]); ax[2].axhline(0, color=C['ref'], lw=.9)
-    for a_, L, t in zip(ax, 'abc', ('Mean RMSE over time, per test case', 'RMSE over time, mean of the test cases', 'Effect of the observations on the error')): panel(a_, L, t)
+    for a_, L, t in zip(ax, 'abc', ('Mean RMSE over time, per test case', 'RMSE over time, mean of the test cases', 'Divergence of the analysis (mean of cases)')): panel(a_, L, t)
     ax[0].set_ylabel(RMSE_LABEL); ax[1].set_xlabel(TIME_LABEL); ax[1].set_ylabel('RMSE (mean over cases)'); plain_log(ax[1]); rmse_ticks(ax[1])
-    ax[2].set_ylabel('Change in RMSE caused by\nassimilating the observations (%)')
-    fig.legend(*ax[0].get_legend_handles_labels(), loc='upper center', ncol=2, frameon=False, bbox_to_anchor=(.5, 1.13))
+    h, l = ax[0].get_legend_handles_labels(); h2, l2 = ax[2].get_legend_handles_labels()
+    fig.legend(h + h2, l + l2, loc='upper center', ncol=3, frameon=False, bbox_to_anchor=(.5, 1.15))
     fig.suptitle('Rayleigh-Benard: diffusion prior + DPS versus ensemble Kalman filter, 3 test cases (same 1% observations and forecast '
                  'model; observations every 1.05 time units)', y=1.24, fontweight='bold', fontsize=11)
     fig.tight_layout(); save(fig, d / 'enkf3')
@@ -207,7 +208,7 @@ def plot_fusion(d):
     names = {'with': ('DPS with background (solver forecast + observations)', C['dps'], 'o'),
              'only': ('DPS with observations only (no background)', C['none'], 's')}
     cases = sorted(s.case.unique())
-    fig, axes = plt.subplots(2, len(cases), figsize=(4.4 * len(cases), 7), sharex=True, squeeze=False)
+    fig, axes = plt.subplots(1, len(cases), figsize=(4.4 * len(cases), 3.8), sharex=True, sharey=True, squeeze=False)
     for j, c in enumerate(cases):
         g = s[s.case == c]
         a = g[g.scheme.str.contains('with background')].set_index('frame'); b = g[g.scheme.str.contains('only')].set_index('frame')
@@ -215,19 +216,14 @@ def plot_fusion(d):
             lab, col, _ = names[key]
             axes[0, j].plot(x.index * FRAME_DT, x.missing_rmse, color=col, label=lab, lw=1.6)
         rel = (a.missing_rmse - b.missing_rmse) / b.missing_rmse * 100
-        axes[1, j].plot(rel.index * FRAME_DT, rel, color='#444', lw=1)
-        axes[1, j].fill_between(rel.index * FRAME_DT, 0, rel, where=rel < 0, color=C['dps'], alpha=.35, lw=0)
-        axes[1, j].fill_between(rel.index * FRAME_DT, 0, rel, where=rel >= 0, color=C['none'], alpha=.35, lw=0)
-        axes[1, j].axhline(0, color=C['ref'], lw=.9)
         axes[0, j].set_title(f'Test case {c}:  mean {a.missing_rmse.mean():.4f} (with)  vs  {b.missing_rmse.mean():.4f} (without)', fontsize=9.5)
-        axes[1, j].set_xlabel(TIME_LABEL)
-        axes[1, j].text(.02, .95, f'background better in {(rel < 0).sum()} of {len(rel)} frames', transform=axes[1, j].transAxes, fontsize=8.5, va='top', color='#333')
+        axes[0, j].set_xlabel(TIME_LABEL)
     for ax in axes[0]: plain_log(ax); rmse_ticks(ax)
-    axes[0, 0].set_ylabel('RMSE at unobserved points'); axes[1, 0].set_ylabel('Change in RMSE with background (%)\n(negative = background helps)')
-    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc='upper center', ncol=2, frameon=False, bbox_to_anchor=(.5, 1.0))
+    axes[0, 0].set_ylabel('RMSE at unobserved points')
+    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc='upper center', ncol=2, frameon=False, bbox_to_anchor=(.5, 1.06))
     fig.suptitle('Rayleigh-Benard: assimilating the solver forecast together with the observations vs observations only\n'
                  '(observations in every frame, 1% points, same mask / prior; each arm tuned on a separate validation case)',
-                 y=1.09, fontweight='bold', fontsize=11)
+                 y=1.2, fontweight='bold', fontsize=11)
     fig.tight_layout(); save(fig, d / 'fusion')
     fig, ax = plt.subplots(1, 3, figsize=(15, 4.2))
     cols = ['missing_rmse_ch0', 'missing_rmse_ch1', 'missing_rmse_ch2', 'missing_rmse']
