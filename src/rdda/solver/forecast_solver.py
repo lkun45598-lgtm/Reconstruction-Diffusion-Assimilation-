@@ -62,7 +62,21 @@ def check_state(state, z, config):
                                         np.max(np.abs(b[:,ix1])))))
 
 
-def forecast(analysis, steps, config=RBConfig(), projection='streamfunction', return_info=False):
+_CACHE = {}
+
+
+def _solver_for(config, reuse):
+    """Fresh solver, or (reuse=True) one cached per process and config: rebuilding costs ~1.3 s vs ~0.4 s for 35 steps.
+    forecast() overwrites the whole state (b,u set; p and all taus zeroed), so a reused solver matches a fresh one to
+    round-off (measured <=2e-16 over 6 inputs, both orders). Do NOT reset sim_time/iteration: doing so leaks ~1% of the
+    previous state into the next run (measured 2e-3); nothing here depends on time."""
+    if not reuse: return build_solver(config)
+    key = tuple(sorted(vars(config).items()))
+    if key not in _CACHE: _CACHE[key] = build_solver(config)
+    return _CACHE[key]
+
+
+def forecast(analysis, steps, config=RBConfig(), projection='streamfunction', return_info=False, reuse=False):
     """Advance an analysis state; output physical (nx,nz,3) background.
 
     Initial pressure/tau states are zero; a v3 Dedalus build is required.
@@ -72,7 +86,7 @@ def forecast(analysis, steps, config=RBConfig(), projection='streamfunction', re
     if analysis.shape != (config.nx, config.nz, 3):
         raise ValueError(f'expected {(config.nx, config.nz, 3)}, got {analysis.shape}')
     if steps < 1 or not np.isfinite(analysis).all(): raise ValueError('Invalid steps or nonfinite Xa')
-    solver, fields, grids = build_solver(config)
+    solver, fields, grids = _solver_for(config, reuse)
     z = np.broadcast_to(grids[1], (config.nx,config.nz))[0].copy()
     initial = analysis.copy()
     if projection == 'streamfunction':

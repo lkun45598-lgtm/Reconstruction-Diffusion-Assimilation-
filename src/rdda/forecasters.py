@@ -16,7 +16,7 @@ class RBForecaster:
 
     def __call__(self, analysis, steps):
         from rdda.solver.forecast_solver import forecast
-        return forecast(analysis, steps, self.config, self.projection, True)
+        return forecast(analysis, steps, self.config, self.projection, True, reuse=True)
 
     def forecast_many(self, fields, steps):
         return np.stack([self(f, steps)[0] for f in fields])
