@@ -134,7 +134,7 @@ def enkf(a):
     truth, mask, fc = setup(a)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     rows, center = [], None
-    for name in ('dps', 'enkf_plain', 'enkf_inflation', 'enkf_infl_loc'):
+    for name in a.schemes:
         d = out / name; d.mkdir(exist_ok=True)
         if name == 'dps':
             res = dps_cycle(a, truth, mask, fc, d)
@@ -275,6 +275,7 @@ def main():
         q.add_argument('--enkf-members', type=int, default=20)
         q.add_argument('--enkf-obs-std', type=float, default=0.05, help='observation error R used by the EnKF (tuned separately from DPS obs_std)')
         q.add_argument('--init-level', type=float, default=0.1, help='initial ensemble spread, x reference std')
+    e.add_argument('--schemes', nargs='+', default=['dps', 'enkf_plain', 'enkf_inflation', 'enkf_infl_loc'], help='dps must come first (it centres the EnKF)')
     e.add_argument('--inflation', type=float, default=1.2)
     e.add_argument('--radius-x', type=float, default=0.6)
     e.add_argument('--radius-z', type=float, default=0.3)

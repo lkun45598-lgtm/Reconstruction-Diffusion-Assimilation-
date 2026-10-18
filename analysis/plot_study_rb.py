@@ -248,6 +248,25 @@ def plot_fusion(d):
     fig.tight_layout(); save(fig, d / 'fusion_summary')
 
 
+def plot_long(d):
+    """Long horizon (400 frames): DPS vs localized EnKF, mean of the test cases (thin lines: single cases), + 50-frame block means."""
+    s = pd.concat([pd.read_csv(f) for f in sorted(d.glob('c*/enkf.csv'))], keys=range(len(list(d.glob('c*/enkf.csv'))))).reset_index(level=0).rename(columns={'level_0': 'case'})
+    names = {'dps': ('Diffusion prior + DPS (tuned)', C['dps']), 'enkf_infl_loc': ('EnKF + inflation + localization', C['enkf2'])}
+    fig, ax = plt.subplots(1, 2, figsize=(13, 4.6), gridspec_kw={'width_ratios': [1.6, 1]})
+    for n, (lab, col) in names.items():
+        g = s[s.scheme == n]
+        m = g.groupby('frame').missing_rmse.mean()
+        ax[0].plot(m.index * FRAME_DT, m.rolling(3, min_periods=1).mean(), color=col, lw=1.8, label=lab)
+        b = g.assign(w=g.frame // 50 * 50).groupby('w').missing_rmse.mean()
+        ax[1].plot(b.index * FRAME_DT, b, 'o-', color=col, lw=2, label=lab)
+    ax[0].set_xlabel(TIME_LABEL); ax[0].set_ylabel(RMSE_LABEL + '\n(mean of 3 test cases, 3-frame running mean)'); plain_log(ax[0]); rmse_ticks(ax[0])
+    ax[1].set_xlabel('Start of 50-frame block (time units)'); ax[1].set_ylabel('Mean RMSE in the block'); ax[1].set_ylim(0, None)
+    panel(ax[0], 'a', 'RMSE over 400 cycles'); panel(ax[1], 'b', 'Block means: does the error keep falling?')
+    fig.legend(*ax[0].get_legend_handles_labels(), loc='upper center', ncol=2, frameon=False, bbox_to_anchor=(.5, 1.07))
+    fig.suptitle('Rayleigh-Benard: long horizon, 400 cycles (140 time units), observations every 1.05 time units', y=1.14, fontweight='bold', fontsize=11)
+    fig.tight_layout(); save(fig, d / 'long')
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--dir', required=True)
@@ -261,3 +280,4 @@ if __name__ == '__main__':
     if (d / 'enkf_all.csv').exists(): plot_enkf3(d, a.inflation, a.radius_x, a.radius_z)
     if (d / 'recon.csv').exists(): plot_recon(d)
     if (d / 'fusion.csv').exists(): plot_fusion(d)
+    if list(d.glob('c*/enkf.csv')): plot_long(d)
