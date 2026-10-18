@@ -267,6 +267,34 @@ def plot_long(d):
     fig.tight_layout(); save(fig, d / 'long')
 
 
+def plot_unified(root):
+    """Schemes A (background + observations), B (observations only), C (EnKF), all with observations in every frame."""
+    root = Path(root)
+    arms = {'A': ('A: background + observations (DPS)', C['dps']), 'B': ('B: observations only (DPS)', C['none']), 'C': ('C: EnKF (inflation + localization)', C['enkf2'])}
+    s = []
+    for c in range(3):
+        u = pd.read_csv(root / f'unified/c{c}/enkf.csv'); f = pd.read_csv(root / f'fusion_c{c}/fusion.csv')
+        s += [u[u.scheme == 'dps'].assign(case=c, arm='A'), f[f.scheme.str.contains('only')].assign(case=c, arm='B'), u[u.scheme == 'enkf_infl_loc'].assign(case=c, arm='C')]
+    s = pd.concat(s)
+    fig, ax = plt.subplots(1, 3, figsize=(17, 4.8), gridspec_kw={'width_ratios': [1, 1.5, 1.2]})
+    w = .26; cols = ['missing_rmse_ch0', 'missing_rmse_ch1', 'missing_rmse_ch2', 'missing_rmse']
+    for i, (k, (lab, col)) in enumerate(arms.items()):
+        g = s[s.arm == k]
+        ax[0].bar(np.arange(4) + i * w, [g[c].mean() for c in cols], w, color=col, label=lab)
+        m = g.groupby('frame').missing_rmse.mean(); ax[1].plot(m.index * FRAME_DT, m, color=col, lw=1.6)
+        e = g.groupby('frame').an_div_rel.mean(); ax[2].plot(e.index * FRAME_DT, e, color=col, lw=1.6)
+    ax[0].set_xticks(np.arange(4) + w, list(CH) + ['pooled'])
+    ax[2].axhline(s.truth_div_rel.median(), color=C['ref'], ls='--', lw=1.1, label='Reference flow (truth)')
+    for a_, L, t_ in zip(ax, 'abc', ('Mean RMSE per channel (3 test cases)', 'RMSE over time (mean of 3 test cases)', 'Divergence of the analysis (mean of 3 cases)')): panel(a_, L, t_)
+    ax[0].set_ylabel(RMSE_LABEL); ax[1].set_ylabel('RMSE at unobserved points'); ax[2].set_ylabel(DIV_LABEL)
+    ax[1].set_xlabel(TIME_LABEL); ax[2].set_xlabel(TIME_LABEL); plain_log(ax[1]); rmse_ticks(ax[1]); plain_log(ax[2])
+    h, l = ax[0].get_legend_handles_labels(); h2, l2 = ax[2].get_legend_handles_labels()
+    fig.legend(h + h2, l + l2, loc='upper center', ncol=4, frameon=False, bbox_to_anchor=(.5, 1.08))
+    fig.suptitle('Rayleigh-Benard: three assimilation schemes, observations in every frame (0.35 time units), 1% sparse observations',
+                 y=1.16, fontweight='bold', fontsize=11)
+    fig.tight_layout(); save(fig, root / 'unified' / 'unified')
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--dir', required=True)
@@ -281,3 +309,4 @@ if __name__ == '__main__':
     if (d / 'recon.csv').exists(): plot_recon(d)
     if (d / 'fusion.csv').exists(): plot_fusion(d)
     if list(d.glob('c*/enkf.csv')): plot_long(d)
+    if (d / 'unified' / 'c0' / 'enkf.csv').exists(): plot_unified(d)

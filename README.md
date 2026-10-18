@@ -269,7 +269,7 @@ $PY analysis/study_ns2d.py recon --case $CASE --out outputs/study/recon_p0 --sta
 - 2D Rayleigh–Bénard 对流：x 方向周期（长度 3），z 方向为上下壁面，Ra=1e5，Pr=1。状态通道 `(b, u_x, u_z)`，网格 72×24。
 - `data/rb200_raw/`：200 个 seed（`seed_0` … `seed_199`）的原始 Dedalus 输出，另有 `logs`，约 873M。
 - `data/processed/`：训练用数据，每个 case 形状 `(100,72,24,3)`，划分 160/20/20（`train/val/test`），`stats.npz` 为训练集逐通道均值/标准差，`manifest.json` 记录划分。
-- `data/processed` 由一份已删除的早期脚本生成：200 个 seed、每个 220 帧、丢弃前 120 帧（t<42，之前为瞬态）、按 seed 编号顺序划分。`rdda.data.prepare`（随机划分、无 burn-in 选项）**不能原样复现**这份数据，需要原样的话直接用现有的 `data/processed`。
+- `data/processed` 由一份已删除的早期脚本生成：200 个 seed、每个 220 帧、丢弃前 120 帧（t<42，之前为瞬态）、划分方式未记录（实测测试 case 0、1、2 对应 seed 81、82、83，并非按 seed 编号顺序）。`rdda.data.prepare`（随机划分、无 burn-in 选项）**不能原样复现**这份数据，需要原样的话直接用现有的 `data/processed`。
 
 ```bash
 rdda-generate --out data/generated --cases 51 --steps 3500 --save-every 35 --nx 72 --nz 24 --rayleigh 1e5
