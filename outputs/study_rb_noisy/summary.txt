@@ -1,0 +1,42 @@
+[ubuntu:2912746] pml_ucx.c:319  Error: Failed to create UCP worker
+Mean RMSE at unobserved points (3 cases x 100 frames)
+           b     u_x     u_z  pooled
+arm                                
+A    0.0188  0.0186  0.0162  0.0180
+B    0.0367  0.0385  0.0342  0.0366
+C    0.0311  0.0239  0.0181  0.0250 
+
+Pooled per case
+ arm        A       B       C
+case                        
+0     0.0191  0.0371  0.0260
+1     0.0185  0.0367  0.0245
+2     0.0164  0.0361  0.0245
+
+Median raw divergence (truth 3.4e-05)
+ arm
+A     0.0998
+B      0.343
+C    0.00155
+Name: an_div_rel, dtype: object
+2026-10-21 17:41:12,610 dedalus 0/1 WARNING :: Threading has not been disabled. This may massively degrade Dedalus performance.
+2026-10-21 17:41:12,610 dedalus 0/1 WARNING :: We strongly suggest setting the "OMP_NUM_THREADS" environment variable to "1".
+
+After stream-function projection: scheme, div before, div after, velocity RMSE before, after
+  A 0.112  0.00891  0.01765  0.01742
+  B 0.363  0.0191  0.03715  0.03650
+  C 0.00748  0.00716  0.02123  0.02131
+saved ../outputs/study_rb_noisy/main/main.png
+
+Spin-up
+         init scheme      t0      t5     t20  last50  frame_below_003
+0       zero      A  0.1221  0.0169  0.0136  0.0179              2.0
+1       zero      F  0.3517  0.2562  0.2310  0.1998              NaN
+2       zero      C  0.3096  0.1215  0.0556  0.0235             35.0
+3  scale:0.3      A  0.0628  0.0173  0.0135  0.0179              1.0
+4  scale:0.3      F  0.2462  0.1826  0.1268  0.0637              NaN
+5  scale:0.3      C  0.2225  0.0898  0.0428  0.0236             26.0
+6   later:60      A  0.0459  0.0253  0.0136  0.0179              3.0
+7   later:60      F  0.0487  0.0462  0.0354  0.0317             52.0
+8   later:60      C  0.0724  0.0434  0.0254  0.0235             17.0
+saved ../outputs/study_rb_noisy/spinup/spinup.png
