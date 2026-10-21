@@ -81,7 +81,7 @@ def enkf_analysis(ens, obs, mask, obs_std, *, inflation=1.0, loc_radius=None, pe
 def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relative_std=True, std_ref=None,
                    init_std=0.0, init_center=None, inflation=1.1, loc_radius=None, analysis_steps=20, lead_frames=1, assim_every=1,
                    seed=0, periodic=(True, True), out=None, coords=None, lengths=(None, None), perturb=None,
-                   hard_observation=False, lowpass_k=16):
+                   hard_observation=False, lowpass_k=16, obs_noise=0.0, obs_seed=0, skip_t0=True):
     """EnKF rollout with the same bookkeeping/columns as rdda.cycle.run_cycle (forecast model = `forecaster`).
 
     Initial ensemble: (init_center if given, else truth[0]) + init_std * std_ref * N(0,1) on every variable (then made consistent).
@@ -93,9 +93,11 @@ def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relativ
     perturb(rng) -> (H,W,C): physically consistent initial perturbation (default: white noise, std = init_std*std_ref).
     hard_observation: after each analysis shift every member at observed entries by (obs - ensemble mean), i.e. the
     mean is overwritten by the observation like DPS's hard_observation, spread is kept.
+    obs_noise: std of the Gaussian error added to the observations (same draws as rdda.cycle.run_cycle; every member's
+    perturbed copy adds obs_std on top, i.e. R = diag(obs_std^2)). skip_t0=False: also analyse t=0 with init_center as first guess.
     coords/lengths: physical-coordinate localization (see enkf_analysis).
     """
-    from rdda.assimilation import metric
+    from rdda.assimilation import metric, noisy_observations
     rng = np.random.default_rng(seed)
     std_ref = np.ones(truth.shape[-1]) if std_ref is None else np.asarray(std_ref, dtype=np.float64)
     ostd = np.asarray(obs_std) * (std_ref if relative_std else 1.0)
@@ -110,11 +112,12 @@ def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relativ
         bg = ens.mean(0)
         data_in = t == 0 or (assim_every > 0 and t % assim_every == 0)
         raw = {}
-        if data_in and not (t == 0 and init_center is not None):
-            ens = enkf_analysis(ens, np.where(mask, xtrue, 0), mask, ostd, inflation=inflation,
+        obs = noisy_observations(xtrue, mask, obs_noise, obs_seed, t)
+        if data_in and not (t == 0 and init_center is not None and skip_t0):
+            ens = enkf_analysis(ens, obs, mask, ostd, inflation=inflation,
                                 loc_radius=loc_radius, periodic=periodic, rng=rng, coords=coords, lengths=lengths)
             if hard_observation:
-                ens[:, mask] += (np.where(mask, xtrue, 0) - ens.mean(0))[mask]
+                ens[:, mask] += (obs - ens.mean(0))[mask]
             if hasattr(forecaster, 'balance'):
                 m_ = ens.mean(0)
                 raw = {f'raw_{k}': v for k, v in forecaster.balance(m_).items()}
@@ -134,5 +137,5 @@ def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relativ
         if out is not None:
             np.savez_compressed(f'{out}/frame_{t:04d}.npz', truth=xtrue,
                                 background=np.zeros((0,), 'f4') if t == 0 else bg, analysis=an,
-                                observations=np.where(mask, xtrue, 0), mask=mask, assimilated=np.array(data_in))
+                                observations=obs, mask=mask, assimilated=np.array(data_in))
     return rows

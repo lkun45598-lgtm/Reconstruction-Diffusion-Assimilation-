@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import numpy as np
 import torch
-from rdda.assimilation import assimilate, make_mask, metric
+from rdda.assimilation import assimilate, make_mask, metric, noisy_observations
 from rdda.forecasters import load_trajectory
 
 
@@ -17,7 +17,7 @@ METHODS = ('bg_obs', 'obs_only', 'free_run', 'no_assim')
 
 
 def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=20, method='bg_obs',
-              assim_every=1, init_state=None, eval_horizons=(), out=None, **dps):
+              assim_every=1, init_state=None, eval_horizons=(), out=None, obs_noise=0.0, obs_seed=0, **dps):
     """Run cycles 0..analysis_steps on truth (T,H,W,3); dps kwargs go to assimilate().
 
     Consecutive cycles are lead_frames saved frames apart, so cycle t is scored against truth[t*lead_frames].
@@ -43,7 +43,7 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
     for t in range(analysis_steps + 1):
         idx = t * lead_frames
         xtrue = np.asarray(truth[idx], dtype=np.float32)
-        obs = np.where(mask, xtrue, 0)
+        obs = noisy_observations(xtrue, mask, obs_noise, obs_seed, t)       # obs_noise: std in physical units (0 = exact)
         if t == 0 and init_state is not None and method == 'bg_obs':
             background, info = np.asarray(init_state, dtype=np.float32), {}
         else:

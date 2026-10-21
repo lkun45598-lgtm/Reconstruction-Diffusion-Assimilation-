@@ -51,6 +51,12 @@ def make_mask(shape, fraction=0.01, seed=42, channels=(0,1,2)):
     return m.reshape(h,w,3)
 
 
+def noisy_observations(x, mask, std, seed=0, t=0):
+    """Observed entries of x plus N(0, std^2) noise (fresh draw per cycle t, shared by every method via the same seed); 0 elsewhere."""
+    noise = np.random.default_rng([seed, t, 7]).standard_normal(x.shape) * std if std else 0.0
+    return np.where(mask, x + noise, 0).astype(np.float32)
+
+
 def normalize(a, mean, std):
     return (a-mean)/std
 

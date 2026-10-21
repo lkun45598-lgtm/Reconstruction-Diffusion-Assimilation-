@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from rdda.assimilation import assimilate, make_mask, metric
+from rdda.assimilation import assimilate, make_mask, metric, noisy_observations
 from rdda.cycle import run_cycle
 from rdda.enkf import run_enkf_cycle
 from rdda.forecasters import RBForecaster
@@ -43,6 +43,7 @@ def common(p):
     p.add_argument('--t-start', type=float, default=0.4)
     p.add_argument('--hard-observation', action=argparse.BooleanOptionalAction, default=True,
                    help='overwrite observed points in the analysis (DPS) / shift the EnKF mean there (EnKF): keep equal')
+    p.add_argument('--obs-noise', type=float, default=0.0, help='std of the Gaussian error added to the observations (physical units; 0 = exact)')
     p.add_argument('--every', type=int, default=3, help='observations enter every K frames (3 = 1.05 time units)')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--device', default='cuda:0')
@@ -65,6 +66,10 @@ def dps_kw(a, **over):
     return kw
 
 
+def cyc_kw(a):
+    return dict(obs_noise=a.obs_noise, obs_seed=a.seed)
+
+
 def nrmse(r, std):
     return float(np.sqrt(np.mean([(r[f'missing_rmse_ch{k}'] / std[k]) ** 2 for k in range(3)])))
 
@@ -81,15 +86,15 @@ def enrich(rows, d, fc, truth, std):
 
 def dps_cycle(a, truth, mask, fc, out, *, method='bg_obs', every=None, init_state=None, **over):
     return run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method=method,
-                     assim_every=a.every if every is None else every, init_state=init_state, out=out,
+                     assim_every=a.every if every is None else every, init_state=init_state, out=out, **cyc_kw(a),
                      **dps_kw(a, init=a.init, t_start=a.t_start, **over) if a.init == 'background' else dps_kw(a, **over))
 
 
-def enkf_kw(a, center):
+def enkf_kw(a, center, ref_state=None):
     """RB-specific EnKF options: physical-coordinate localization, consistent initial perturbation, no low-pass."""
-    ref = reference_std(center)
+    ref = reference_std(center if ref_state is None else ref_state)
     return dict(members=a.enkf_members, obs_std=getattr(a, 'enkf_obs_std', a.obs_std), relative_std=False, std_ref=a.std, init_center=center,
-                analysis_steps=a.analysis_steps, assim_every=a.every, seed=a.seed, hard_observation=a.hard_observation,
+                analysis_steps=a.analysis_steps, assim_every=a.every, seed=a.seed, hard_observation=a.hard_observation, obs_noise=a.obs_noise, obs_seed=a.seed,
                 coords=(np.arange(NX) * LX / NX, rb_nodes(NZ, LZ)), lengths=(LX, None), lowpass_k=None,
                 perturb=lambda r: perturbation(r, ref, a.init_level)[0])
 
@@ -124,7 +129,7 @@ def noise(a):
 # ------------------------------------------------------------------------------------------------ B. EnKF / DPS
 def center_analysis(a, truth, mask):
     """Frame-0 DPS analysis from the observations only (shared start of the DPS-vs-EnKF comparison)."""
-    return assimilate(a.prior, np.where(mask, truth[0], 0), mask, **dps_kw(a))['mean']
+    return assimilate(a.prior, noisy_observations(truth[0], mask, a.obs_noise, a.seed, 0), mask, **dps_kw(a))['mean']
 
 
 def enkf(a):
@@ -185,7 +190,7 @@ def dps_sweep(a):
         if f[3] == 'background': over['t_start'] = float(f[4])
         try:
             res = run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method=a.method, assim_every=a.every,
-                            **dps_kw(a, **over))
+                            **cyc_kw(a), **dps_kw(a, **over))
             e = [r['missing_rmse'] for r in res]
             rows.append(dict(config=cfg, mean_rmse=float(np.mean(e)), final_rmse=e[-1],
                              mean_nrmse=float(np.mean([nrmse(r, a.std) for r in res]))))
@@ -251,10 +256,45 @@ def fusion(a):
         d = out / method; d.mkdir(exist_ok=True)
         kw = dps_kw(a, **over)
         if method == 'bg_obs' and a.init == 'background': kw.update(init=a.init, t_start=a.t_start)
-        res = run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method=method, assim_every=1, out=d, **kw)
+        res = run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method=method, assim_every=1, out=d, **cyc_kw(a), **kw)
         rows += [dict(scheme=name, case=a.case_index, **r) for r in enrich(res, d, fc, truth, a.std)]
         pd.DataFrame(rows).to_csv(out / 'fusion.csv', index=False)
     print('saved', out / 'fusion.csv')
+
+
+# ------------------------------------------------------------------------------------------------ E. bad first guess
+def init_state_of(spec, truth):
+    """'zero' | 'scale:s' (s x truth[0]) | 'later:K' (truth[K], a state of a different phase of the same flow)."""
+    kind, _, v = spec.partition(':')
+    return {'zero': lambda: np.zeros_like(truth[0]), 'scale': lambda: float(v) * truth[0], 'later': lambda: truth[int(v)].copy()}[kind]()
+
+
+def spinup(a):
+    """(E) start far from the truth (zero field / weakened field / a state of another time), noisy observations every frame:
+    can the observations pull each scheme back?  A = DPS+background, C = EnKF (ensemble centred on the bad guess, t=0 analysed),
+    B = DPS observations only (does not depend on the first guess), F = free forecast from the bad guess."""
+    truth, mask, fc = setup(a)
+    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    rows = []
+
+    def add(name, init, d, res):
+        rows.extend(dict(scheme=name, init=init, **r) for r in enrich(res, d, fc, truth, a.std))
+        pd.DataFrame(rows).to_csv(out / 'spinup.csv', index=False)
+
+    d = out / 'obs_only'; d.mkdir(exist_ok=True)
+    add('B', 'any', d, run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method='obs_only', assim_every=1, out=d, **cyc_kw(a),
+                                 **dps_kw(a, init='noise', obs_std=a.obsonly_obs_std, dps_rate=a.obsonly_rate)))
+    for spec in a.inits:
+        x0 = init_state_of(spec, truth).astype(np.float32); tag = spec.replace(':', '')
+        print('init', spec, 'rmse of the first guess', metric(x0, truth[0]), flush=True)
+        d = out / f'{tag}_free'; d.mkdir(exist_ok=True)
+        add('F', spec, d, dps_cycle(a, truth, mask, fc, d, method='no_assim', every=1, init_state=x0))
+        d = out / f'{tag}_A'; d.mkdir(exist_ok=True)
+        add('A', spec, d, dps_cycle(a, truth, mask, fc, d, every=1, init_state=x0))
+        d = out / f'{tag}_C'; d.mkdir(exist_ok=True)
+        kw = enkf_kw(a, x0, ref_state=truth[0]); kw.update(inflation=a.inflation, loc_radius=(a.radius_x, a.radius_z), skip_t0=False, assim_every=1)
+        add('C', spec, d, run_enkf_cycle(truth, fc, mask, out=str(d), **kw))
+    print('saved', out / 'spinup.csv')
 
 
 def merge(a):
@@ -283,6 +323,16 @@ def main():
     w.add_argument('--inflations', type=float, nargs='+', default=[1.0, 1.2, 1.5, 2.0, 3.0])
     w.add_argument('--radii-x', type=float, nargs='+', default=[0.3, 0.6, 1.0], help='0 = no localization')
     w.add_argument('--radii-z', type=float, nargs='+', default=[0.2, 0.4, 0.8])
+    sp = sub.add_parser('spinup'); common(sp)
+    sp.add_argument('--inits', nargs='+', default=['zero', 'scale:0.3', 'later:60'])
+    sp.add_argument('--enkf-members', type=int, default=20)
+    sp.add_argument('--enkf-obs-std', type=float, default=0.1, help='sqrt of the diagonal of R')
+    sp.add_argument('--init-level', type=float, default=1.0, help='initial ensemble spread, x reference std')
+    sp.add_argument('--inflation', type=float, default=1.3)
+    sp.add_argument('--radius-x', type=float, default=1.5)
+    sp.add_argument('--radius-z', type=float, default=1.2)
+    sp.add_argument('--obsonly-obs-std', type=float, default=0.1)
+    sp.add_argument('--obsonly-rate', type=float, default=1.0)
     d = sub.add_parser('dps_sweep'); common(d)
     d.add_argument('--method', default='bg_obs', choices=['bg_obs', 'obs_only'])
     d.add_argument('--grid', nargs='+', required=True)
@@ -302,7 +352,7 @@ def main():
     m = sub.add_parser('merge')
     m.add_argument('--inputs', nargs='+', required=True); m.add_argument('--output', required=True)
     a = p.parse_args()
-    {'noise': noise, 'enkf': enkf, 'enkf_sweep': enkf_sweep, 'dps_sweep': dps_sweep, 'recon': recon, 'fusion': fusion, 'merge': merge}[a.cmd](a)
+    {'noise': noise, 'enkf': enkf, 'enkf_sweep': enkf_sweep, 'spinup': spinup, 'dps_sweep': dps_sweep, 'recon': recon, 'fusion': fusion, 'merge': merge}[a.cmd](a)
 
 
 if __name__ == '__main__':
