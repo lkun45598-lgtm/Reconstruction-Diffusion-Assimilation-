@@ -23,8 +23,11 @@ def load():
             x = pd.read_csv(R / f); x['arm'] = x.scheme.map(MAP); s.append(x[x.arm.notna()].assign(case=c))
     s = pd.concat(s)
     d = dict(s=s, ch=s.groupby('arm')[COLS].mean(), pc=s.groupby(['arm', 'case']).missing_rmse.mean().unstack(), div=s.groupby('arm').an_div_rel.median(), tdiv=s.truth_div_rel.median())
-    d['noise'] = pd.read_csv(R / 'noise/noise.csv')
-    sp = pd.concat(pd.read_csv(f) for f in sorted(R.glob('spinup/*/spinup.csv'))); d['sp'] = sp.query("init != 'any' or scheme == 'B'")
+    sp0 = pd.concat(pd.read_csv(f) for f in sorted(R.glob('spinup/*/spinup.csv'))).query("init != 'any' or scheme == 'B'").drop_duplicates(['scheme', 'init', 'frame']).assign(case=0)
+    sp = pd.concat([sp0] + [pd.read_csv(R / f'spinup_c{c}/spinup.csv').assign(case=c) for c in (1, 2)]); d['sp'] = sp
+    d['nz'] = pd.concat(pd.read_csv(f).assign(case=int(f.parent.name[1]), sid=int(f.parent.name[-1])) for f in sorted(R.glob('noise2/*/noise.csv')))
+    lg = [pd.read_csv(R / f'long/c{c}/enkf.csv').assign(case=c) for c in range(3)]; d['long'] = pd.concat(lg)
+    d['ra'] = {5e4: lg[0]}; d['ra'].update({v: pd.read_csv(R / f'long_ra/ra{k}/enkf.csv') for k, v in (('1e5', 1e5), ('8e4', 8e4), ('2e4', 2e4))})
     txt = (R / 'summary.txt').read_text()
     d['proj'] = {k: tuple(float(x) for x in v) for k, *v in re.findall(r'^\s+([ABC]) ([\d.e-]+)\s+([\d.e-]+)\s+([\d.]+)\s+([\d.]+)', txt, re.M)}
     d['infl'] = pd.read_csv(R / 'sweep_enkf/enkf_sweep.csv').set_index('inflation').mean_rmse
@@ -88,6 +91,42 @@ def fig_spinup(d):
     fig.legend(h, l, loc='upper center', ncol=4, frameon=False, bbox_to_anchor=(.5, 1.1)); fig.tight_layout(); M.save(fig, 'spinup')
 
 
+def fig_spinup_mean(d):
+    sp = d['sp']; inits = [('zero', 'Zero field'), ('scale:0.3', 'Truth $\\times$ 0.3'), ('later:60', 'State at frame 60')]
+    fig, ax = plt.subplots(1, 3, figsize=(7.2, 2.3), sharey=True); b = sp[sp.scheme == 'B'].groupby('frame').missing_rmse.mean()
+    cl = {'F': ('F: free forecast', GRY), 'C': ('C: EnKF', GRN), 'A': ('A: background + observations', BLUE)}
+    for a_, (i, t) in zip(ax, inits):
+        for k, (lab, c) in cl.items():
+            g = sp[(sp.scheme == k) & (sp.init == i)].groupby('frame').missing_rmse.mean(); a_.plot(g.index * DT, g, color=c, label=lab)
+        a_.plot(b.index * DT, b, color=ORG, lw=.9, alpha=.8, label='B: observations only'); a_.axhline(.03, color='k', ls=':', lw=.7)
+        a_.set_yscale('log'); a_.set_title(f'First guess: {t}', loc='left', fontweight='bold', fontsize=7.5); a_.set_xlabel('Time $t$')
+        a_.set_yticks([.01, .02, .03, .05, .1, .2, .3]); a_.set_yticklabels(['0.01', '0.02', '0.03', '0.05', '0.1', '0.2', '0.3']); a_.minorticks_off()
+    ax[0].set_ylabel('RMSE at unobserved points (mean of 3 cases)'); h, l = ax[0].get_legend_handles_labels()
+    fig.legend(h, l, loc='upper center', ncol=4, frameon=False, bbox_to_anchor=(.5, 1.1)); fig.tight_layout(); M.save(fig, 'spinup')
+
+
+def fig_noise2(d):
+    n = d['nz']; S = {'No assimilation (forecast only)': ('Forecast only', ORG), 'DPS, observations every frame': ('DPS (observations every frame)', BLUE)}
+    fig, ax = plt.subplots(1, 2, figsize=(7.2, 2.3), gridspec_kw={'width_ratios': [1.3, 1]}); lv = sorted(n.level.unique())
+    for sch, (lab, c) in S.items():
+        for l_, ls in ((0.0, '-'), (2.0, '--')):
+            g = n[(n.scheme == sch) & (n.level == l_)].groupby('frame').missing_rmse.mean(); ax[0].plot(g.index * DT, g, color=c, ls=ls, label=f'{lab}, {l_ * 100:.0f}%')
+        m = n[n.scheme == sch].groupby(['level', 'case', 'sid']).missing_rmse.mean().groupby('level').agg(['mean', 'min', 'max'])
+        ax[1].errorbar(range(len(lv)), m['mean'], [m['mean'] - m['min'], m['max'] - m['mean']], color=c, marker='o', ms=3.5, capsize=2.5)
+    ax[1].set_xticks(range(len(lv)), [f'{x * 100:.0f}' for x in lv]); ax[1].set_yscale('log'); ax[1].set_yticks([.02, .05, .1, .2]); ax[1].set_yticklabels(['0.02', '0.05', '0.1', '0.2']); ax[1].minorticks_off()
+    ax[0].set_xlabel('Time $t$'); ax[0].set_ylabel('RMSE at unobserved points'); ax[1].set_xlabel('Initial noise (% of reference std)'); ax[1].set_ylabel('Mean RMSE over all frames')
+    for a_, t in zip(ax, ('(a) RMSE over time (solid: 0%, dashed: 200%)', '(b) Mean RMSE vs. noise level')): a_.set_title(t, loc='left', fontweight='bold', fontsize=7.5)
+    h, l = ax[0].get_legend_handles_labels(); fig.legend(h, l, loc='upper center', ncol=4, frameon=False, bbox_to_anchor=(.5, 1.09)); fig.tight_layout(); M.save(fig, 'noise')
+
+
+def fig_ra(d):
+    fig, ax = plt.subplots(figsize=(3.5, 2.3)); ras = sorted(d['ra'], reverse=True)
+    for sch, lab, c in (('dps', 'A: DPS + background', BLUE), ('enkf_infl_loc', 'C: EnKF', GRN)):
+        v = [d['ra'][r][d['ra'][r].scheme == sch].missing_rmse.mean() for r in ras]; ax.plot(range(len(ras)), v, 'o-', color=c, ms=3.5, label=lab)
+    ax.set_xticks(range(len(ras)), [f'{r:.0e}'.replace('e+0', 'e') for r in ras]); ax.set_xlabel('Forecast-model Ra (truth 1e5)'); ax.set_ylabel('Mean RMSE (400 cycles)'); ax.set_yscale('log')
+    ax.set_yticks([.01, .02, .03, .05, .1]); ax.set_yticklabels(['0.01', '0.02', '0.03', '0.05', '0.1']); ax.minorticks_off(); ax.legend(frameon=False); fig.tight_layout(); M.save(fig, 'ra')
+
+
 def fig_field(frame=59, case=1):
     from rdda.rb_noise import rb_nodes
     base = R / f'main/c{case}'
@@ -123,7 +162,7 @@ BODY = r'''
 
 \begin{center}\textbf{摘\quad 要}\end{center}
 \begingroup\small\leftskip=2em\rightskip=2em
-在仅有 1\% 稀疏观测、观测带高斯误差（标准差 0.1，$R=0.01$）、数值模式存在 Rayleigh 数失配的条件下，比较三种同化方案：A 背景场与稀疏观测联合同化（扩散先验 + DPS），B 稀疏观测直接重建，C 集合卡尔曼滤波（EnKF，20 成员）。3 个测试 case、每帧进观测的结果表明，A 的未观测点 RMSE 为 @A@，B 为 @B@，C 为 @C@，A 较 B、C 分别降低 @AB@\% 和 @AC@\%，且在 3 个 case 中顺序一致。从全零场、减弱场（真值的 0.3 倍）和另一时刻的状态出发，A 在 @FA@ 帧内回到 0.03 以下，EnKF 需要 @FC@ 帧，纯预报始终不能回到该水平。原始分析场的散度上 A 为 EnKF 的数十倍，经求解器重启所用的流函数投影后两者接近。
+在仅有 1\% 稀疏观测、观测带高斯误差（标准差 0.1，$R=0.01$）、数值模式存在 Rayleigh 数失配的条件下，比较三种同化方案：A 背景场与稀疏观测联合同化（扩散先验 + DPS），B 稀疏观测直接重建，C 集合卡尔曼滤波（EnKF，20 成员）。3 个测试 case、每帧进观测的结果表明，A 的未观测点 RMSE 为 @A@，B 为 @B@，C 为 @C@，A 较 B、C 分别降低 @AB@\% 和 @AC@\%，且在 3 个 case 中顺序一致。从全零场、减弱场（真值的 0.3 倍）和另一时刻的状态出发，A 在 @FA@ 帧内回到 0.03 以下，EnKF 需要 @FC@ 帧，纯预报在前两种初值下始终不能回到该水平；400 个循环的长时间对比中 A（@LA@）仍优于 EnKF（@LE@）。改变预报模型的 Rayleigh 数后，A 对模型误差不敏感，EnKF 对其敏感：模型误差中等及以上时 A 更优，模型误差很小（Ra 取 $8\times10^4$ 及以上）时 EnKF 更优。原始分析场的散度上 A 为 EnKF 的数十倍，经求解器重启所用的流函数投影后两者接近。
 \par\endgroup
 
 \section{实验设置}
@@ -176,16 +215,16 @@ EnKF 的更新式为 $\mathbf x^a-\mathbf x^f=\mathbf P^f\mathbf H^{\!\top}(\mat
 \begin{figure}[htbp]\centering\includegraphics[width=.95\linewidth]{report_fig_noisy/field.pdf}\caption{测试 case 1、第 60 帧的浮力 $b$：左列为真值与 A/B/C 的分析场，右列为带噪声的观测位置与三个方案的绝对误差（色标统一）。}\label{fig:field}\end{figure}
 
 \subsection{从较差的初值恢复}
-为检验观测能否把偏离很大的初值拉回来，在测试 case 0 上令三个方案从三种较差的初值出发：全零场、真值的 0.3 倍（减弱）、同一轨迹第 60 帧的状态（相位不同）；另设纯预报（F，从该初值自由积分，不同化）作参照。观测同前（$\sigma_o=0.1$，每帧）。结果见表~\ref{tab:spin} 与图~\ref{fig:spin}。
+为检验观测能否把偏离很大的初值拉回来，在 3 个测试 case 上令三个方案从三种较差的初值出发：全零场、真值的 0.3 倍（减弱）、同一轨迹第 60 帧的状态（相位不同）；另设纯预报（F，从该初值自由积分，不同化）作参照。观测同前（$\sigma_o=0.1$，每帧）。结果取 3 个 case 的平均（表~\ref{tab:spin}、图~\ref{fig:spin}），三个 case 的趋势一致。
 
-A 在 @FA@ 帧内回到 0.03 以下，之后的稳态误差（后 50 帧均值 @LA@）与初值无关；EnKF 需要 @FC@ 帧才降到 0.03 以下，稳态后为 @LC@，优于 B 但不及 A；纯预报在全零场和减弱场下始终无法回到该水平（全零场下后 50 帧仍约 @LF@），说明恢复来自观测而非求解器本身。全零场不满足无散度约束，其相对散度恒为 1，A 与 EnKF 在同化一步后即消除。EnKF 收敛慢的一部分原因可能是初始离散度和成员数未调，本实验未区分。
+A 在 @FA@ 帧内回到 0.03 以下，之后的稳态误差（后 50 帧均值 @SA@）与初值无关；EnKF 需要 @FC@ 帧才降到 0.03 以下，稳态后为 @SC@，优于 B 但不及 A；纯预报在全零场和减弱场下始终无法回到该水平（全零场下后 50 帧仍约 @SF@），说明恢复来自观测而非求解器本身。全零场不满足无散度约束，其相对散度恒为 1，A 与 EnKF 在同化一步后即消除。EnKF 收敛慢的一部分原因可能是初始离散度和成员数未调，本实验未区分。
 
-\begin{table}[htbp]\centering\small\caption{坏初值恢复（测试 case 0；“降至 0.03”为 RMSE 连续 5 帧低于 0.03 的起始帧，--- 表示未达到）}\label{tab:spin}
+\begin{table}[htbp]\centering\small\caption{坏初值恢复（3 个测试 case 的平均；“降至 0.03”为 RMSE 连续 5 帧低于 0.03 的起始帧，给出 3 个 case 的范围，--- 表示未达到）}\label{tab:spin}
 \begin{tabular}{@{}llccccc@{}}\toprule
 初值 & 方案 & 第 0 帧 & 第 5 帧 & 第 20 帧 & 后 50 帧均值 & 降至 0.03 \\ \midrule
 @TAB_SPIN@ \\ \bottomrule\end{tabular}\end{table}
 
-\begin{figure}[htbp]\centering\includegraphics[width=\linewidth]{report_fig_noisy/spinup.pdf}\caption{从三种较差初值出发的未观测点 RMSE（虚线：0.03）。B 不依赖初值。}\label{fig:spin}\end{figure}
+\begin{figure}[htbp]\centering\includegraphics[width=\linewidth]{report_fig_noisy/spinup.pdf}\caption{从三种较差初值出发的未观测点 RMSE（3 个 case 平均；虚线：0.03）。B 不依赖初值。}\label{fig:spin}\end{figure}
 
 \subsection{方程平衡}
 表~\ref{tab:div} 给出分析场的相对散度。原始分析场上，A 约 @DA@，B 约 @DB@，C 约 @DC@，真值约 $@TDIV@$：扩散模型的分析场不严格满足不可压缩，B 最差。但每帧预报前求解器重启会做流函数投影，原始分析场的不平衡不会累积；经同样的投影后，A 降至 @PA@，C 为 @PC@，差异不大，B 为 @PB@；投影几乎不改变速度对真值的误差。这与此前无噪声观测下的结论一致：原始散度偏大主要来自小尺度毛刺被求导放大。需要说明，投影后 A 与 C 仍有小差距，不能说完全无差异。
@@ -199,62 +238,99 @@ EnKF 的原始散度低，是因为成员由求解器预报、近似无散度，
 真值经同样投影 & $@TDIV@$ & 0.0079 & --- & --- \\ \bottomrule\end{tabular}\end{table}
 
 \subsection{初值噪声}
-在 $t=0$ 的真值上叠加平滑噪声：$b$ 的噪声乘壁面包络；速度由流函数噪声求导得到，因而无散度，$u_x$、$u_z$ 共用一个缩放系数。噪声幅度为水平乘参考标准差（$b$ 约 0.097，$u_x$、$u_z$ 约 0.166 和 0.169），水平取 0 至 40\%，在测试 case 0 上比较，观测带 $\sigma_o=0.1$ 噪声。结果见表~\ref{tab:noise}：40\% 噪声使不同化的纯预报全程平均误差增大 @NUP@\%，每帧同化的 DPS 变化 @NDP@\%，仅第 0 帧受影响。该范围内初值误差远小于上一节的坏初值，区分度有限，且仅一个噪声样本。
+在 $t=0$ 的真值上叠加平滑噪声：$b$ 的噪声乘壁面包络；速度由流函数噪声求导得到，因而无散度，$u_x$、$u_z$ 共用一个缩放系数。噪声幅度为水平乘参考标准差（$b$ 约 0.097，$u_x$、$u_z$ 约 0.166 和 0.169），水平取 0、5\%、10\%、20\%、40\%、100\%、200\%，3 个测试 case $\times$ 3 个噪声样本，观测带 $\sigma_o=0.1$ 噪声。结果见表~\ref{tab:noise} 与图~\ref{fig:noise}：噪声增大时不同化的纯预报误差明显上升（200\% 时为无噪声的 @NF@ 倍，各次运行范围 @NFR@），每帧同化的 DPS 变化很小（200\% 时 @ND@），第 0 帧之后迅速被观测消掉。40\% 以内的档位对预报本身影响也不大，加到 100\%、200\% 才有区分度。
 
-\begin{table}[htbp]\centering\small\caption{初值噪声对未观测点 RMSE 的影响（测试 case 0，一个噪声样本）}\label{tab:noise}
-\begin{tabular}{@{}lccccc@{}}\toprule
-方案 & 无噪声 & 40\% 噪声 & 变化 & 第 0 帧（无噪声） & 第 0 帧（40\%） \\ \midrule
+\begin{table}[htbp]\centering\small\caption{初值噪声对未观测点 RMSE 的影响（全程平均，9 次运行的均值）}\label{tab:noise}
+\begin{tabular}{@{}lccccccc@{}}\toprule
+方案 & 0\% & 5\% & 10\% & 20\% & 40\% & 100\% & 200\% \\ \midrule
 @TAB_NOISE@ \\ \bottomrule\end{tabular}\end{table}
+
+\begin{figure}[htbp]\centering\includegraphics[width=\linewidth]{report_fig_noisy/noise.pdf}\caption{$t=0$ 叠加不同水平噪声的影响（误差线为 9 次运行的范围）。}\label{fig:noise}\end{figure}
+
+\subsection{长时间表现}
+将 3 条测试轨迹重新积分到 520 帧，取其中 400 个循环（约 140 个时间单位），每 3 帧进观测，观测带 $\sigma_o=0.1$ 噪声，预报模型 $\mathrm{Ra}=5\times10^{4}$。结果见表~\ref{tab:long} 与图~\ref{fig:long}：A 全程平均 @LA@，EnKF @LE@，3 个 case 均为 A 更低。A 约在 100 帧后走平在约 0.016，EnKF 走平在约 0.026。
+
+\begin{table}[htbp]\centering\small\caption{400 个循环的未观测点 RMSE}\label{tab:long}
+\begin{tabular}{@{}lcccccc@{}}\toprule
+方案 & case 0 & case 1 & case 2 & 前 100 帧 & 后 150 帧 \\ \midrule
+@TAB_LONG@ \\ \bottomrule\end{tabular}\end{table}
+
+\begin{figure}[htbp]\centering\includegraphics[width=\linewidth]{report_fig_noisy/long.pdf}\caption{400 个循环的 RMSE（a，3 个 case 平均）与每 17.5 个时间单位窗口内的平均 RMSE（b）。}\label{fig:long}\end{figure}
+
+\subsection{对模型误差的敏感性}
+为检验结论是否依赖模型误差的大小，在测试 case 0 上把预报模型的 Rayleigh 数取为 $10^{5}$（无失配）、$8\times10^{4}$、$5\times10^{4}$（主设置）、$2\times10^{4}$，其余设置不变，各跑 400 个循环（表~\ref{tab:ra}、图~\ref{fig:ra}）。A 对失配不敏感：$\mathrm{Ra}$ 从 $10^{5}$ 到 $5\times10^{4}$，A 的误差几乎不变，到 $2\times10^{4}$ 才明显升高；EnKF 随失配增大迅速变差。因此两者的优劣随模型误差而变：失配中等及以上（$5\times10^{4}$、$2\times10^{4}$）时 A 更优；失配很小（$8\times10^{4}$）或没有时 EnKF 更优。这也说明 A 的误差平台在小失配范围内不由模型误差决定，其成因（例如观测噪声）本文未进一步验证。EnKF 的膨胀与局地化在 $5\times10^{4}$ 下选定，在小失配下的最优值可能不同，故 EnKF 在 $10^{5}$、$8\times10^{4}$ 的数字不一定是其上限。
+
+\begin{table}[htbp]\centering\small\caption{预报模型 Rayleigh 数的影响（测试 case 0，400 个循环）}\label{tab:ra}
+\begin{tabular}{@{}lcccc@{}}\toprule
+预报 Ra & A 全程 & C 全程 & A 后 150 帧 & C 后 150 帧 \\ \midrule
+@TAB_RA@ \\ \bottomrule\end{tabular}\end{table}
+
+\begin{figure}[htbp]\centering\includegraphics[width=.5\linewidth]{report_fig_noisy/ra.pdf}\caption{未观测点 RMSE 随预报模型 Rayleigh 数的变化。}\label{fig:ra}\end{figure}
 
 \section{结论}
 \begin{enumerate}
 \item 观测带 $\sigma_o=0.1$ 误差时，背景场与稀疏观测联合同化（A）的未观测点 RMSE 最低（@A@），较稀疏观测直接重建降低 @AB@\%，较 EnKF 降低 @AC@\%，3 个测试 case 顺序一致。
-\item 从全零场、减弱场或另一时刻的状态出发，A 在 @FA@ 帧内恢复，EnKF 需要 @FC@ 帧，纯预报不能恢复；稳态误差与初值无关。
+\item 从全零场、减弱场或另一时刻的状态出发，A 在 @FA@ 帧内恢复，EnKF 需要 @FC@ 帧；纯预报在全零场和减弱场下不能恢复（第 60 帧状态下约 40 帧后进入 0.03 以下）；A 的稳态误差与初值无关。
 \item 原始分析场的散度上 A 明显大于 EnKF（@DA@ 对 @DC@）；经求解器重启所用的流函数投影后差距缩小（@PA@ 对 @PC@），速度误差几乎不变。
-\item $t=0$ 噪声（至 40\%）使纯预报误差增大 @NUP@\%，对同化后的 DPS 几乎无影响。
+\item $t=0$ 噪声（至 200\% 参考标准差）使纯预报误差增大至 @NF@ 倍，对同化后的 DPS 影响很小（@ND@）。
+\item 400 个循环的长时间对比中 A（@LA@）仍优于 EnKF（@LE@）。A 对预报模型的 Rayleigh 数失配不敏感，EnKF 敏感：失配中等及以上时 A 更优，失配很小时 EnKF 更优，A 的优势因此是对模型误差的稳健性，而不是在任何条件下都更准。
 \end{enumerate}
 
 \section{局限}
-结果来自 3 个测试 case、单个随机种子和单个观测噪声实现；坏初值与初值噪声实验仅用测试 case 0。EnKF 只用 20 个成员，膨胀与局地化仅在一个验证 case 上选定，其收敛慢与 $b$ 通道误差偏大可能部分源于参数而非方法本身；DPS 的 $o_\mathrm{std}$ 小于真实噪声的原因未查明。长时间（400 循环）对比和 Rayleigh 数失配量的变化未在带噪声观测下重做，相关结果见无噪声版报告。EnKF 更新式按通用形式实现，待与任务给定公式核对。
+结果来自 3 个测试 case、单个观测噪声实现；Rayleigh 数敏感性仅用测试 case 0。观测比例（1\%）、观测噪声水平（0.1）和 EnKF 成员数（20）均未改变，观测噪声水平的扫描未做。EnKF 只用 20 个成员，膨胀与局地化仅在 $\mathrm{Ra}=5\times10^{4}$ 的一个验证 case 上选定，其收敛慢与 $b$ 通道误差偏大可能部分源于参数而非方法本身；DPS 的 $o_\mathrm{std}$ 小于真实噪声的原因未查明。A 的误差平台成因未查明。EnKF 更新式按通用形式实现，待与任务给定公式核对。
 
 \end{document}
 '''
 
 
 def fill(d):
-    ch, pc, div, proj, infl = d['ch'], d['pc'], d['div'], d['proj'], d['infl']
+    ch, pc, div, proj, infl, sp = d['ch'], d['pc'], d['div'], d['proj'], d['infl'], d['sp']
     A, B, C = (ch.loc[k, 'missing_rmse'] for k in 'ABC')
-    n = d['noise']; NP, ND = 'No assimilation (forecast only)', 'DPS, observations every frame'
-    nz = n[n.level.isin([0.0, 0.4])]; mm = nz.groupby(['scheme', 'level']).missing_rmse.mean(); f0 = nz[nz.frame == 0].groupby(['scheme', 'level']).missing_rmse.mean()
-    sp = d['sp']; SPN = {'zero': '全零场', 'scale:0.3': '真值 $\\times$ 0.3', 'later:60': '第 60 帧状态'}; rows = []; first = {}; last = {}
+    SPN = {'zero': '全零场', 'scale:0.3': '真值 $\\times$ 0.3', 'later:60': '第 60 帧状态'}; rows = []; first = {}; last = {}
+    def ser(k, i, c): return sp[(sp.scheme == k) & (sp.init == i) & (sp.case == c)].sort_values('frame').missing_rmse.values
     for i, nm in SPN.items():
         for k in 'AFC':
-            g = sp[(sp.scheme == k) & (sp.init == i)].missing_rmse.values
-            th = next((j for j in range(len(g)) if (g[j:j + 5] < .03).all()), None); first[i, k] = th; last[i, k] = g[50:].mean()
-            rows.append(f'{nm if k == "A" else ""} & {k} & {f4(g[0])} & {f4(g[5])} & {f4(g[20])} & {f4(g[50:].mean())} & {"---" if th is None else th} \\\\')
-        if i != 'later:60': rows[-1] += ' \\addlinespace'
-    b = sp[sp.scheme == 'B'].drop_duplicates('frame').missing_rmse.values
+            g = np.mean([ser(k, i, c) for c in range(3)], 0)
+            ths = [next((j for j in range(100) if (ser(k, i, c)[j:j + 5] < .03).all()), None) for c in range(3)]; first[i, k] = ths; last[i, k] = g[50:].mean()
+            rng_ = '---' if all(t is None for t in ths) else ('/'.join('---' if t is None else str(t) for t in ths) if None in ths else f'{min(ths)}--{max(ths)}')
+            rows.append(f'{nm if k == "A" else ""} & {k} & {f4(g[0])} & {f4(g[5])} & {f4(g[20])} & {f4(g[50:].mean())} & {rng_} \\\\' + (' \\addlinespace' if k == 'C' and i != 'later:60' else ''))
+    b = np.mean([sp[(sp.scheme == 'B') & (sp.case == c)].sort_values('frame').missing_rmse.values for c in range(3)], 0)
     rows.append(f'\\midrule 任意 & B & {f4(b[0])} & {f4(b[5])} & {f4(b[20])} & {f4(b[50:].mean())} & --- \\\\')
     cells = [[ch.loc[k, c] for c in COLS] + [pc.loc[k, c] for c in range(3)] for k in 'ABC']; mn = [min(r[j] for r in cells) for j in range(7)]
     cell = lambda v, j: f'\\bv{{{f4(v)}}}' if v == mn[j] else f4(v)
     nm3 = (('A', '背景场 + 观测'), ('B', '仅观测'), ('C', 'EnKF'))
     tab_res = ' \\\\\n'.join(f'{k}\\ \\ {nm} & ' + ' & '.join(cell(cells[i][j], j) for j in range(7)) for i, (k, nm) in enumerate(nm3))
     tab_proj = ' \\\\\n'.join(f'{k}\\ \\ {nm} & {div[k]:.4f} & {proj[k][1]:.4f} & {proj[k][2]:.5f} & {proj[k][3]:.5f}' for k, nm in nm3)
-    tab_noise = ' \\\\\n'.join(f'{nm} & {f4(mm[k, 0.0])} & {f4(mm[k, 0.4])} & {100 * (mm[k, 0.4] / mm[k, 0.0] - 1):+.0f}\\% & {f4(f0[k, 0.0])} & {f4(f0[k, 0.4])}' for k, nm in ((NP, '纯预报'), (ND, 'DPS 每帧观测')))
+    n = d['nz']; NP, ND = 'No assimilation (forecast only)', 'DPS, observations every frame'; lv = [0.0, 0.05, 0.1, 0.2, 0.4, 1.0, 2.0]
+    mm = n.groupby(['scheme', 'level', 'case', 'sid']).missing_rmse.mean()
+    mean = lambda k, l: mm[k, l].mean()
+    tab_noise = ' \\\\\n'.join(f'{nm} & ' + ' & '.join(f4(mean(k, l)) for l in lv) + '' for k, nm in ((NP, '纯预报'), (ND, 'DPS 每帧观测')))
+    ratio = mm[NP, 2.0] / mm[NP, 0.0].values.mean()
+    lg = d['long']
+    def lrm(sch, c=None, lo=0, hi=400):
+        g = lg[(lg.scheme == sch)] if c is None else lg[(lg.scheme == sch) & (lg.case == c)]
+        return g[(g.frame >= lo) & (g.frame < hi)].missing_rmse.mean()
+    LA, LE = lrm('dps'), lrm('enkf_infl_loc')
+    tab_long = ' \\\\\n'.join(f'{nm} & ' + ' & '.join(f4(lrm(k, c)) for c in range(3)) + f' & {f4(lrm(k, None, 0, 100))} & {f4(lrm(k, None, 250, 400))}' for k, nm in (('dps', 'A\\ \\ 背景场 + 观测'), ('enkf_infl_loc', 'C\\ \\ EnKF')))
+    def rar(r, sch, lo=0):
+        g = d['ra'][r]; g = g[g.scheme == sch]; return g[g.frame >= lo].missing_rmse.mean()
+    tab_ra = ' \\\\\n'.join(f'${r / 10 ** int(np.floor(np.log10(r))):.0f}\\times10^{{{int(np.floor(np.log10(r)))}}}$ & {f4(rar(r, "dps"))} & {f4(rar(r, "enkf_infl_loc"))} & {f4(rar(r, "dps", 250))} & {f4(rar(r, "enkf_infl_loc", 250))}' for r in (1e5, 8e4, 5e4, 2e4))
     tdiv = d['tdiv']; e = int(np.floor(np.log10(tdiv)))
-    fA = [first[i, 'A'] for i in SPN]; fC = [first[i, 'C'] for i in SPN]
+    allA = [t for i in SPN for t in first[i, 'A'] if t is not None]; allC = [t for i in SPN for t in first[i, 'C'] if t is not None]
     return {'A': f4(A), 'B': f4(B), 'C': f4(C), 'AB': f'{100 * (1 - A / B):.0f}', 'AC': f'{100 * (1 - A / C):.0f}', 'CB': f4(ch.loc['C', COLS[0]]), 'AB0': f4(ch.loc['A', COLS[0]]),
             'DA': f'{div["A"]:.2f}', 'DB': f'{div["B"]:.2f}', 'DC': f'{div["C"]:.4f}', 'PA': f'{proj["A"][1]:.4f}', 'PB': f'{proj["B"][1]:.4f}', 'PC': f'{proj["C"][1]:.4f}',
-            'TDIV': f'{tdiv / 10 ** e:.1f}\\times10^{{{e}}}', 'NUP': f'{100 * (mm[NP, 0.4] / mm[NP, 0.0] - 1):.0f}', 'NDP': f'{100 * (mm[ND, 0.4] / mm[ND, 0.0] - 1):+.0f}',
-            'FA': f'{min(fA)}--{max(fA)}', 'FC': f'{min(fC)}--{max(fC)}', 'LA': f4(last['zero', 'A']), 'LC': f4(last['zero', 'C']), 'LF': f4(last['zero', 'F']),
-            'TAB_RES': tab_res, 'TAB_PROJ': tab_proj, 'TAB_NOISE': tab_noise, 'TAB_SPIN': '\n'.join(rows),
-            **{f'I{int(k * 10)}': f4(infl[k]) for k in (1.0, 1.1, 1.3, 1.5, 2.0, 2.5)}}
+            'TDIV': f'{tdiv / 10 ** e:.1f}\\times10^{{{e}}}', 'NF': f'{ratio.mean():.1f}', 'NFR': f'{ratio.min():.1f}--{ratio.max():.1f}',
+            'ND': f'{100 * (mean(ND, 2.0) / mean(ND, 0.0) - 1):+.0f}\\%',
+            'FA': f'{min(allA)}--{max(allA)}', 'FC': f'{min(allC)}--{max(allC)}', 'SA': f4(np.mean([last[i, 'A'] for i in SPN])), 'SC': f4(np.mean([last[i, 'C'] for i in SPN])),
+            'SF': f4(last['zero', 'F']), 'LA': f4(LA), 'LE': f4(LE),
+            'TAB_RES': tab_res, 'TAB_PROJ': tab_proj, 'TAB_NOISE': tab_noise, 'TAB_SPIN': '\n'.join(rows), 'TAB_LONG': tab_long, 'TAB_RA': tab_ra,
+            **{f'I{int(round(k * 10))}': f4(infl[k]) for k in (1.0, 1.1, 1.3, 1.5, 2.0, 2.5)}}
 
 
 def main():
     FIG.mkdir(parents=True, exist_ok=True)
     for f in FIG.glob('*'): f.unlink()
-    d = load(); fig_workflow(); fig_main(d); fig_cases(d); fig_spinup(d); fig_field(); M.fig_noise(d)
+    d = load(); fig_workflow(); fig_main(d); fig_cases(d); fig_spinup_mean(d); fig_field(); fig_noise2(d); M.fig_long(d); fig_ra(d)
     body = BODY
     for k, v in fill(d).items(): body = body.replace(f'@{k}@', v)
     left = re.findall(r'@[A-Z0-9_]+@', body)
