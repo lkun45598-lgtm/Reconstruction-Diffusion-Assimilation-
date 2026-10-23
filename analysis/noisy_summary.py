@@ -67,10 +67,9 @@ def plot_main(root, s):
         g = s[s.arm == k]
         ax[0].bar(np.arange(4) + i * w, [g[c].mean() for c in cols], w, color=COL[k], label=NAME[k])
         m = g.groupby('frame').missing_rmse.mean(); ax[1].plot(m.index * FRAME_DT, m, color=COL[k], lw=1.6)
-        e = pr[pr.arm == k].groupby('frame')[['raw', 'proj']].mean(); ax[2].plot(e.index * FRAME_DT, e.raw, color=COL[k], lw=.9, ls=':', alpha=.5); ax[2].plot(e.index * FRAME_DT, e.proj, color=COL[k], lw=1.6)
+        e = pr[pr.arm == k].groupby('frame')[['raw', 'proj']].mean(); ax[2].plot(e.index * FRAME_DT, e.proj, color=COL[k], lw=1.6)
     ax[0].set_xticks(np.arange(4) + w, ['$b$', '$u_x$', '$u_z$', 'pooled'])
     ax[2].axhline(pr.truth_proj.mean(), color=C['ref'], ls='--', lw=1.1, label='Truth, same projection')
-    ax[2].plot([], [], color='gray', ls=':', lw=.9, label='before projection (faint)')
     for a_, L, t_ in zip(ax, 'abc', ('Mean RMSE per channel (3 test cases)', 'RMSE over time (mean of 3 test cases)', 'Divergence after projection (mean of 3 cases)')): panel(a_, L, t_)
     ax[0].set_ylabel(RMSE_LABEL); ax[1].set_ylabel('RMSE at unobserved points'); ax[2].set_ylabel(DIV_LABEL)
     ax[1].set_xlabel(TIME_LABEL); ax[2].set_xlabel(TIME_LABEL); plain_log(ax[1]); rmse_ticks(ax[1]); plain_log(ax[2])
