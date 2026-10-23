@@ -41,17 +41,37 @@ def projected(root, every=3):
     return out
 
 
+def projected_series(root):
+    """Per-frame relative divergence of every analysis before / after the solver's stream-function projection (cached)."""
+    f = Path(root) / 'main' / 'projected_div.csv'
+    if f.exists(): return pd.read_csv(f)
+    from rdda.forecasters import RBForecaster
+    from rdda.rb_noise import rb_nodes
+    from rdda.solver.forecast_solver import streamfunction_projection
+    from rdda.solver.rb_equations import RBConfig
+    fc = RBForecaster(RBConfig(nx=72, nz=24, lx=3.0, lz=1.0, rayleigh=5e4, prandtl=1.0, dt=0.01), 'streamfunction'); z = rb_nodes(24)
+    proj = lambda x: np.concatenate([x[..., :1], np.stack(streamfunction_projection(x[..., 1], x[..., 2], z, 3.0, 1.0), -1)], -1)
+    rows = []
+    for k, sub in (('A', 'fusion/bg_obs'), ('B', 'fusion/obs_only'), ('C', 'enkf/enkf_infl_loc')):
+        for c in range(3):
+            for t in range(100):
+                d = np.load(Path(root) / f'main/c{c}/{sub}/frame_{t:04d}.npz'); a = d['analysis']
+                rows.append(dict(arm=k, case=c, frame=t, raw=fc.balance(a)['div_rel'], proj=fc.balance(proj(a))['div_rel'], truth_raw=fc.balance(d['truth'])['div_rel'], truth_proj=fc.balance(proj(d['truth']))['div_rel']))
+    r = pd.DataFrame(rows); r.to_csv(f, index=False); return r
+
+
 def plot_main(root, s):
     fig, ax = plt.subplots(1, 3, figsize=(17, 4.8), gridspec_kw={'width_ratios': [1, 1.5, 1.2]})
-    w = .26; cols = ['missing_rmse_ch0', 'missing_rmse_ch1', 'missing_rmse_ch2', 'missing_rmse']
+    w = .26; cols = ['missing_rmse_ch0', 'missing_rmse_ch1', 'missing_rmse_ch2', 'missing_rmse']; pr = projected_series(root)
     for i, k in enumerate('ABC'):
         g = s[s.arm == k]
         ax[0].bar(np.arange(4) + i * w, [g[c].mean() for c in cols], w, color=COL[k], label=NAME[k])
         m = g.groupby('frame').missing_rmse.mean(); ax[1].plot(m.index * FRAME_DT, m, color=COL[k], lw=1.6)
-        e = g.groupby('frame').an_div_rel.mean(); ax[2].plot(e.index * FRAME_DT, e, color=COL[k], lw=1.6)
+        e = pr[pr.arm == k].groupby('frame')[['raw', 'proj']].mean(); ax[2].plot(e.index * FRAME_DT, e.raw, color=COL[k], lw=.9, ls=':', alpha=.5); ax[2].plot(e.index * FRAME_DT, e.proj, color=COL[k], lw=1.6)
     ax[0].set_xticks(np.arange(4) + w, ['$b$', '$u_x$', '$u_z$', 'pooled'])
-    ax[2].axhline(s.truth_div_rel.median(), color=C['ref'], ls='--', lw=1.1, label='Reference flow (truth)')
-    for a_, L, t_ in zip(ax, 'abc', ('Mean RMSE per channel (3 test cases)', 'RMSE over time (mean of 3 test cases)', 'Divergence of the analysis (mean of 3 cases)')): panel(a_, L, t_)
+    ax[2].axhline(pr.truth_proj.mean(), color=C['ref'], ls='--', lw=1.1, label='Truth, same projection')
+    ax[2].plot([], [], color='gray', ls=':', lw=.9, label='before projection (faint)')
+    for a_, L, t_ in zip(ax, 'abc', ('Mean RMSE per channel (3 test cases)', 'RMSE over time (mean of 3 test cases)', 'Divergence after projection (mean of 3 cases)')): panel(a_, L, t_)
     ax[0].set_ylabel(RMSE_LABEL); ax[1].set_ylabel('RMSE at unobserved points'); ax[2].set_ylabel(DIV_LABEL)
     ax[1].set_xlabel(TIME_LABEL); ax[2].set_xlabel(TIME_LABEL); plain_log(ax[1]); rmse_ticks(ax[1]); plain_log(ax[2])
     h, l = ax[0].get_legend_handles_labels(); h2, l2 = ax[2].get_legend_handles_labels()

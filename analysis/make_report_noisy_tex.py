@@ -51,17 +51,17 @@ def fig_workflow():
 
 
 def fig_main(d):
-    s = d['s']; names = {'A': ('A: background + observations', BLUE), 'B': ('B: observations only', ORG), 'C': ('C: EnKF', GRN)}
+    s = d['s']; pr = pd.read_csv(R / 'main/projected_div.csv'); names = {'A': ('A: background + observations', BLUE), 'B': ('B: observations only', ORG), 'C': ('C: EnKF', GRN)}
     fig, ax = plt.subplots(1, 3, figsize=(7.2, 2.35), gridspec_kw={'width_ratios': [1, 1.3, 1.15]}); w = .27
     for i, (k, (lab, c)) in enumerate(names.items()):
         g = s[s.arm == k]
         ax[0].bar(np.arange(4) + i * w, [g[x].mean() for x in COLS], w, color=c, label=lab)
         m = g.groupby('frame').missing_rmse.mean(); ax[1].plot(m.index * DT, m, color=c)
-        e = g.groupby('frame').an_div_rel.mean(); ax[2].plot(e.index * DT, e, color=c)
-    ax[2].axhline(d['tdiv'], color='k', ls='--', lw=.9, label='Truth')
-    ax[0].set_xticks(np.arange(4) + w, ['$b$', '$u_x$', '$u_z$', 'pooled']); ax[2].set_yscale('log'); ax[2].set_ylim(1e-5, .6)
+        e = pr[pr.arm == k].groupby('frame')[['raw', 'proj']].mean(); ax[2].plot(e.index * DT, e.raw, color=c, lw=.8, ls=':', alpha=.5); ax[2].plot(e.index * DT, e.proj, color=c)
+    ax[2].axhline(pr.truth_proj.mean(), color='k', ls='--', lw=.9, label='Truth, same projection'); ax[2].plot([], [], color='gray', ls=':', lw=.8, label='before projection (faint)')
+    ax[0].set_xticks(np.arange(4) + w, ['$b$', '$u_x$', '$u_z$', 'pooled']); ax[2].set_yscale('log'); ax[2].set_ylim(1e-3, .6)
     ax[0].set_ylabel('RMSE at unobserved points'); ax[1].set_ylabel('RMSE'); ax[2].set_ylabel(r'Relative divergence $\|\nabla\cdot\mathbf{u}\|/\|\nabla\mathbf{u}\|$')
-    for a_, t in zip(ax, ('(a) Mean RMSE per channel', '(b) RMSE over time', '(c) Divergence of the analysis')): a_.set_title(t, loc='left', fontweight='bold')
+    for a_, t in zip(ax, ('(a) Mean RMSE per channel', '(b) RMSE over time', '(c) Divergence after projection')): a_.set_title(t, loc='left', fontweight='bold')
     for a_ in ax[1:]: a_.set_xlabel('Time $t$')
     h, l = ax[0].get_legend_handles_labels(); h2, l2 = ax[2].get_legend_handles_labels()
     fig.legend(h + h2, l + l2, loc='upper center', ncol=4, frameon=False, bbox_to_anchor=(.5, 1.1)); fig.tight_layout(); M.save(fig, 'main')
@@ -205,7 +205,7 @@ EnKF 的更新式为 $\mathbf x^a-\mathbf x^f=\mathbf P^f\mathbf H^{\!\top}(\mat
 方案 & $b$ & $u_x$ & $u_z$ & 合并 & case 0 & case 1 & case 2 \\ \midrule
 @TAB_RES@ \\ \bottomrule\end{tabular}\end{table}
 
-\begin{figure}[htbp]\centering\includegraphics[width=\linewidth]{report_fig_noisy/main.pdf}\caption{三个方案的误差与散度（每帧进观测，3 个测试 case，观测噪声 $\sigma_o=0.1$）。}\end{figure}
+\begin{figure}[htbp]\centering\includegraphics[width=\linewidth]{report_fig_noisy/main.pdf}\caption{三个方案的误差与投影后的散度（每帧进观测，3 个测试 case，$\sigma_o=0.1$；c 中淡色点线为投影前，虚线为真值经同样投影）。}\end{figure}
 
 \begin{figure}[htbp]\centering\includegraphics[width=\linewidth]{report_fig_noisy/cases.pdf}\caption{三个测试 case 各自的逐帧 RMSE。}\label{fig:cases}\end{figure}
 
