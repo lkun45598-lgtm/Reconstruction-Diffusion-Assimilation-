@@ -85,12 +85,14 @@ def metric(pred, truth, mask=None):
 def assimilate(prior, observations, obs_mask, background=None, *,
                members=4, steps=100, t_start=.95, sampler='ode',
                obs_std=0.05, bg_std=0.3, relative_std=False, dps_rate=0.5,
-               seed=42, hard_observation=True, init='noise', bg_guidance=None, device='cpu'):
+               seed=42, hard_observation=True, init='noise', bg_guidance=None, device='cpu', div_weight=0.0, div_scale=1.0, div_geometry=None):
     """Sample analysis using trained model and existing multi-DPS from user code.
 
     init='noise': start from N(0,I) at t_start (background only acts as a guidance term).
     init='background': start from the background noised to diffusion time t_start (SDEdit-style), so the
         background decides the initial state; t_start is then typically small (0.2-0.6).
+    div_weight > 0 (RB only): add the incompressibility penalty weight * sum((div u / div_scale)^2) of the predicted clean field to the
+        guidance (same step size as the observation term); div_geometry = (z nodes, lx, lz) gives the spectral derivatives.
     bg_guidance: also guide towards the background during sampling (default: True for init='noise',
         False for init='background').
 
@@ -124,6 +126,12 @@ def assimilate(prior, observations, obs_mask, background=None, *,
         infer_dtype=torch.bfloat16 if device.type=='cpu' or torch.cuda.is_bf16_supported() else torch.float16,
         dps_grad_mode='l2sq')
     sde.dps_loss_reduction='sum'
+    if div_weight > 0:
+        from rdda.diagnostics import _spectral_d, _cheb_dz
+        z_, lx_, lz_ = div_geometry; nx_, nz_ = observations.shape[:2]
+        f32 = lambda a: torch.tensor(np.asarray(a), dtype=torch.float32, device=device)
+        sde.div_term = dict(Dx=f32(_spectral_d(np.eye(nx_), 0, lx_)), Dz=f32(_cheb_dz(np.eye(nz_), z_, lz_)), weight=float(div_weight), scale=float(div_scale),
+                            mean=f32(mean).reshape(1, 3, 1, 1), std=f32(std).reshape(1, 3, 1, 1), guidance=0.5 * dps_rate * t_start / steps)
     torch.manual_seed(seed)
     y=tensor_field(normalize(np.where(mask,observations,mean),mean,std),device).repeat(members,1,1,1)
     m=tensor_field(mask.astype('f4'),device).repeat(members,1,1,1)

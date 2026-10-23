@@ -1522,6 +1522,11 @@ class SDE(qc_of_input):
             guidance_scale_by_name = self._dps_bg_ratio_cap_scale(guidance_by_name, named_losses)
             for name, guidance, loss in loss_terms:
                 total_loss = total_loss + guidance * guidance_scale_by_name.get(name, 1.0) * loss
+            div = getattr(self, 'div_term', None)          # optional incompressibility guidance on the predicted clean field
+            if div is not None:
+                u = x0_f[:, 1:] * div['std'][:, 1:] + div['mean'][:, 1:]     # physical (u_x, u_z); layout (B, C, nx, nz)
+                d = torch.einsum('ij,bjk->bik', div['Dx'], u[:, 0]) + torch.einsum('bij,jk->bik', u[:, 1], div['Dz'])
+                total_loss = total_loss + div['guidance'] * div['weight'] * ((d / div['scale']) ** 2).sum(dtype=torch.float32)
             self._log_obs_location_rmse(x0_f, obs_ref, bg_ref)
             self._log_score_conflict(named_losses, x_grad)
             grad = torch.autograd.grad(total_loss, x_grad)[0]

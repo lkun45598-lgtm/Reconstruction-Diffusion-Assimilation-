@@ -43,10 +43,14 @@ def common(p):
     p.add_argument('--t-start', type=float, default=0.4)
     p.add_argument('--hard-observation', action=argparse.BooleanOptionalAction, default=True,
                    help='overwrite observed points in the analysis (DPS) / shift the EnKF mean there (EnKF): keep equal')
+    p.add_argument('--div-weight', type=float, default=0.0, help='incompressibility guidance weight in DPS (0 = off)')
     p.add_argument('--obs-noise', type=float, default=0.0, help='std of the Gaussian error added to the observations (physical units; 0 = exact)')
     p.add_argument('--every', type=int, default=3, help='observations enter every K frames (3 = 1.05 time units)')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--device', default='cuda:0')
+
+
+DIV_SCALE = 1.0      # rms |grad u| of a reference field; set in setup()
 
 
 def setup(a):
@@ -55,13 +59,23 @@ def setup(a):
     mask = make_mask(truth.shape[1:], a.observation_fraction, a.seed)
     fc = RBForecaster(RBConfig(nx=NX, nz=NZ, lx=LX, lz=LZ, rayleigh=a.model_rayleigh, prandtl=1.0, dt=0.01), 'streamfunction')
     a.std = np.load(Path(a.data) / 'stats.npz')['std']
+    global DIV_SCALE
+    DIV_SCALE = rms_grad(truth[0])
     print('case', f, 'obs pixels', int(mask.any(-1).sum()), flush=True)
     return truth, mask, fc
 
 
+def rms_grad(x):
+    """rms of |grad u| of a reference state: the unit in which the divergence penalty is measured."""
+    from rdda.diagnostics import _spectral_d, _cheb_dz
+    ux, uz = x[..., 1].astype(np.float64), x[..., 2].astype(np.float64); z = rb_nodes(NZ, LZ)
+    return float(np.sqrt(np.mean(_spectral_d(ux, 0, LX) ** 2 + _cheb_dz(ux, z, LZ) ** 2 + _spectral_d(uz, 0, LX) ** 2 + _cheb_dz(uz, z, LZ) ** 2)))
+
+
 def dps_kw(a, **over):
     kw = dict(members=a.members, steps=a.dps_steps, obs_std=a.obs_std, bg_std=a.bg_std, relative_std=False, seed=a.seed,
-              device=a.device, hard_observation=a.hard_observation, dps_rate=a.dps_rate)
+              device=a.device, hard_observation=a.hard_observation, dps_rate=a.dps_rate,
+              div_weight=a.div_weight, div_scale=DIV_SCALE, div_geometry=(rb_nodes(NZ, LZ), LX, LZ))
     kw.update(over)
     return kw
 
