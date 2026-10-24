@@ -85,7 +85,7 @@ def metric(pred, truth, mask=None):
 def assimilate(prior, observations, obs_mask, background=None, *,
                members=4, steps=100, t_start=.95, sampler='ode',
                obs_std=0.05, bg_std=0.3, relative_std=False, dps_rate=0.5,
-               seed=42, hard_observation=True, init='noise', bg_guidance=None, device='cpu', div_weight=0.0, div_scale=1.0, div_geometry=None):
+               seed=42, hard_observation=True, init='noise', bg_guidance=None, device='cpu', div_weight=0.0, div_scale=1.0, div_geometry=None, obs_soft=0.0):
     """Sample analysis using trained model and existing multi-DPS from user code.
 
     init='noise': start from N(0,I) at t_start (background only acts as a guidance term).
@@ -126,6 +126,7 @@ def assimilate(prior, observations, obs_mask, background=None, *,
         infer_dtype=torch.bfloat16 if device.type=='cpu' or torch.cuda.is_bf16_supported() else torch.float16,
         dps_grad_mode='l2sq')
     sde.dps_loss_reduction='sum'
+    sde.obs_soft = float(obs_soft)      # >0: observation weight 1/(R + obs_soft*sigma_t^2), softer at high noise (0 = fixed 1/R)
     if div_weight > 0:
         from rdda.diagnostics import _spectral_d, _cheb_dz
         z_, lx_, lz_ = div_geometry; nx_, nz_ = observations.shape[:2]

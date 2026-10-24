@@ -1498,6 +1498,9 @@ class SDE(qc_of_input):
                 gamma = cond[3] if len(cond) > 3 else None
                 weight = cond[4] if len(cond) > 4 else None
                 name = cond[5] if len(cond) > 5 else f"cond{i}"
+                soft = getattr(self, 'obs_soft', 0.0)
+                if soft > 0 and name == "obs" and gamma is not None:    # x0_hat has variance ~ sigma_t^2 (unit-variance data): 1/(R + s sigma_t^2)
+                    gamma = 1.0 / (1.0 / gamma + soft * self.sigma(t) ** 2)
                 m = self.smooth_mask_inward(y_mask) if smooth else y_mask
                 if name == "obs":
                     obs_ref = (y.float(), m.float())
