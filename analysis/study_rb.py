@@ -108,7 +108,7 @@ def enkf_kw(a, center, ref_state=None):
     """RB-specific EnKF options: physical-coordinate localization, consistent initial perturbation, no low-pass."""
     ref = reference_std(center if ref_state is None else ref_state)
     return dict(members=a.enkf_members, obs_std=getattr(a, 'enkf_obs_std', a.obs_std), relative_std=False, std_ref=a.std, init_center=center,
-                analysis_steps=a.analysis_steps, assim_every=a.every, seed=a.seed, hard_observation=a.hard_observation, obs_noise=a.obs_noise, obs_seed=a.seed,
+                analysis_steps=a.analysis_steps, assim_every=a.every, seed=a.seed, hard_observation=a.hard_observation, obs_noise=a.obs_noise, obs_seed=a.seed, demean_init=getattr(a, 'demean_init', False),
                 coords=(np.arange(NX) * LX / NX, rb_nodes(NZ, LZ)), lengths=(LX, None), lowpass_k=None,
                 perturb=lambda r: perturbation(r, ref, a.init_level)[0])
 
@@ -173,7 +173,10 @@ def enkf_sweep(a):
     on the validation case; score = mean unobserved RMSE."""
     truth, mask, fc = setup(a)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    center = center_analysis(a, truth, mask)
+    if a.center_file and Path(a.center_file).exists(): center = np.load(a.center_file)
+    else:
+        center = center_analysis(a, truth, mask)
+        if a.center_file: np.save(a.center_file, center)
     rows = []
     for infl in a.inflations:
         for rx in a.radii_x:
@@ -329,6 +332,8 @@ def main():
         q.add_argument('--enkf-members', type=int, default=20)
         q.add_argument('--enkf-obs-std', type=float, default=0.05, help='observation error R used by the EnKF (tuned separately from DPS obs_std)')
         q.add_argument('--init-level', type=float, default=0.1, help='initial ensemble spread, x reference std')
+        q.add_argument('--demean-init', action='store_true', help='remove the mean of the initial perturbations (ensemble mean == centre)')
+        q.add_argument('--center-file', default=None, help='npy cache of the shared frame-0 DPS analysis (loaded if present, else computed and saved)')
     e.add_argument('--schemes', nargs='+', default=['dps', 'enkf_plain', 'enkf_inflation', 'enkf_infl_loc'], help='dps must come first (it centres the EnKF)')
     e.add_argument('--inflation', type=float, default=1.2)
     e.add_argument('--radius-x', type=float, default=0.6)

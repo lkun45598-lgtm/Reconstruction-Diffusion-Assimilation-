@@ -85,7 +85,7 @@ def metric(pred, truth, mask=None):
 def assimilate(prior, observations, obs_mask, background=None, *,
                members=4, steps=100, t_start=.95, sampler='ode',
                obs_std=0.05, bg_std=0.3, relative_std=False, dps_rate=0.5,
-               seed=42, hard_observation=True, init='noise', bg_guidance=None, device='cpu', div_weight=0.0, div_scale=1.0, div_geometry=None, obs_soft=0.0):
+               seed=42, hard_observation=True, init='noise', bg_guidance=None, device='cpu', div_weight=0.0, div_scale=1.0, div_geometry=None, obs_soft=0.0, project_guidance=False, project_output=False, proj_modes=16):
     """Sample analysis using trained model and existing multi-DPS from user code.
 
     init='noise': start from N(0,I) at t_start (background only acts as a guidance term).
@@ -126,6 +126,13 @@ def assimilate(prior, observations, obs_mask, background=None, *,
         infer_dtype=torch.bfloat16 if device.type=='cpu' or torch.cuda.is_bf16_supported() else torch.float16,
         dps_grad_mode='l2sq')
     sde.dps_loss_reduction='sum'
+    proj_P = None
+    if project_guidance or project_output:                 # divergence-free + no-slip projection of the velocity (needs div_geometry=(z,lx,lz))
+        from rdda.solver.no_slip_projection import projection_matrix
+        z_, lx_, lz_ = div_geometry; proj_P = projection_matrix(z_, lx_, lz_, observations.shape[0], proj_modes)
+    if project_guidance:
+        f32p = lambda a: torch.tensor(np.asarray(a), dtype=torch.float32, device=device)
+        sde.proj_term = dict(P=f32p(proj_P), mean=f32p(mean).reshape(1, 3, 1, 1), std=f32p(std).reshape(1, 3, 1, 1))
     sde.obs_soft = float(obs_soft)      # >0: observation weight 1/(R + obs_soft*sigma_t^2), softer at high noise (0 = fixed 1/R)
     if div_weight > 0:
         from rdda.diagnostics import _spectral_d, _cheb_dz
@@ -162,6 +169,10 @@ def assimilate(prior, observations, obs_mask, background=None, *,
     samples=np.moveaxis(result['x'].detach().float().cpu().numpy(),1,-1)*std+mean
     if not np.isfinite(samples).all(): raise FloatingPointError('nonfinite posterior samples')
     raw=samples.copy()
+    if project_output:                                     # every sample -> divergence-free, u=0 on the true walls; b untouched
+        nx_,nz_=samples.shape[1:3]
+        v=np.concatenate([samples[...,1].reshape(len(samples),-1),samples[...,2].reshape(len(samples),-1)],axis=1).astype(np.float64)@proj_P.T
+        samples[...,1]=v[:,:nx_*nz_].reshape(-1,nx_,nz_); samples[...,2]=v[:,nx_*nz_:].reshape(-1,nx_,nz_)
     if hard_observation:
         samples[:,mask]=observations[mask]
     return dict(samples=samples,mean=samples.mean(axis=0).astype('f4'),

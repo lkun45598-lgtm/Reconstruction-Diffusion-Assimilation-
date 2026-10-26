@@ -81,7 +81,7 @@ def enkf_analysis(ens, obs, mask, obs_std, *, inflation=1.0, loc_radius=None, pe
 def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relative_std=True, std_ref=None,
                    init_std=0.0, init_center=None, inflation=1.1, loc_radius=None, analysis_steps=20, lead_frames=1, assim_every=1,
                    seed=0, periodic=(True, True), out=None, coords=None, lengths=(None, None), perturb=None,
-                   hard_observation=False, lowpass_k=16, obs_noise=0.0, obs_seed=0, skip_t0=True):
+                   hard_observation=False, lowpass_k=16, obs_noise=0.0, obs_seed=0, skip_t0=True, demean_init=False, init_ensemble=None):
     """EnKF rollout with the same bookkeeping/columns as rdda.cycle.run_cycle (forecast model = `forecaster`).
 
     Initial ensemble: (init_center if given, else truth[0]) + init_std * std_ref * N(0,1) on every variable (then made consistent).
@@ -104,7 +104,13 @@ def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relativ
     spf = forecaster.steps_per_frame
     x0 = np.asarray(truth[0] if init_center is None else init_center, dtype=np.float32)
     pert = perturb if perturb is not None else (lambda r: init_std * std_ref * r.standard_normal(x0.shape))
-    ens = np.stack([forecaster.consistent(x0 + np.asarray(pert(rng), dtype=np.float32)) for _ in range(members)])
+    if init_ensemble is not None:                                          # given states (e.g. snapshots of other times), no centre + perturbation
+        assert len(init_ensemble) == members, 'init_ensemble must have `members` states'
+        ens = np.stack([forecaster.consistent(np.asarray(e, dtype=np.float32)) for e in init_ensemble])
+    else:
+        perts = np.stack([np.asarray(pert(rng), dtype=np.float32) for _ in range(members)])
+        if demean_init: perts = perts - perts.mean(0, keepdims=True)       # ensemble mean == init_center exactly
+        ens = np.stack([forecaster.consistent(x0 + p_) for p_ in perts])
     rows = []
     for t in range(analysis_steps + 1):
         xtrue = np.asarray(truth[t * lead_frames], dtype=np.float32)

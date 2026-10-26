@@ -1487,6 +1487,14 @@ class SDE(qc_of_input):
                 predictor = model(d, t)
                 x0 = self.converter(predictor, t, x_grad, target_type='x0')
             x0_f = x0.float()
+            x0_c = x0_f                                                  # clean field used by the likelihood terms
+            proj = getattr(self, 'proj_term', None)
+            if proj is not None:                                         # guidance on the divergence-free / no-slip projection of x0_hat (physical units)
+                u = x0_f[:, 1:] * proj['std'][:, 1:] + proj['mean'][:, 1:]
+                B_, _, nx_, nz_ = u.shape
+                v = u.reshape(B_, 2 * nx_ * nz_) @ proj['P'].T
+                u = v.reshape(B_, 2, nx_, nz_)
+                x0_c = torch.cat([x0_f[:, :1], (u - proj['mean'][:, 1:]) / proj['std'][:, 1:]], dim=1)
             total_loss = 0.0
             obs_ref = None
             bg_ref = None
@@ -1506,7 +1514,7 @@ class SDE(qc_of_input):
                     obs_ref = (y.float(), m.float())
                 elif name == "background":
                     bg_ref = (y.float(), m.float())
-                diff = (x0_f - y.float()) * m.float()
+                diff = (x0_c - y.float()) * m.float()
                 if self.dps_grad_mode == 'l2sq':
                     sq = diff * diff
                     if weight is not None:
