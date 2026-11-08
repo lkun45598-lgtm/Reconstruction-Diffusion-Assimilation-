@@ -1,6 +1,6 @@
 """Portrait A4 briefing (LaTeX, xelatex) for the RB experiments -> docs/RB实验汇报.tex / .pdf.
 Report figures are redrawn here at a fixed 7.2 in width (docs/report_fig/*.pdf) so that fonts stay legible on A4; every
-number is read from the result CSVs; projected-divergence numbers from outputs/study_rb_g/unified/summary.txt.
+number is read from the result CSVs; projected-divergence numbers from outputs/261018_g/unified/summary.txt.
 Usage: python analysis/make_report_tex.py      (needs xelatex)
 """
 import re

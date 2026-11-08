@@ -4,7 +4,7 @@
 
 ## 0. 最新状态（2026-10-15）：主线已改为 RB
 
-RB 上的三个实验已按统一设定完成（见 `README.md` §6.5，结果在 `outputs/study_rb_g/`）：
+RB 上的三个实验已按统一设定完成（见 `README.md` §6.5，结果在 `outputs/261018_g/`）：
 - 图 1 初始噪声（3 个噪声样本）、图 2 DPS 对 EnKF（3 个测试 case，DPS 0.0145 对最优 EnKF 0.0195）、图 3 加背景对不加背景（3 个测试 case，0.0135 对 0.0171，但优势不稳定）。
 - 方法是背景作为 DPS 引导项、关硬观测、各方法在验证 case 上调参。早期用“从加噪背景出发”的结果和人造背景误差的结果都已作废。
 
@@ -33,13 +33,13 @@ RB 上的三个实验已按统一设定完成（见 `README.md` §6.5，结果�
 
 ## 3. 已有结论（均为 NS2D 单个 case 0002、1% 观测，仅为初步结论）
 
-产物在 `outputs/study/{noise,enkf,recon}/`（`.csv` + `.png` + `.pdf`），绘图脚本 `analysis/plot_study_ns2d.py`，实验脚本 `analysis/study_ns2d.py`（子命令 `noise` / `enkf` / `recon`）。
+产物在 `outputs/261014_study_ns2d/{noise,enkf,recon}/`（`.csv` + `.png` + `.pdf`），绘图脚本 `analysis/plot_study_ns2d.py`，实验脚本 `analysis/study_ns2d.py`（子命令 `noise` / `enkf` / `recon`）。
 
 1. **t=0 加噪声（noise.png）**：不同化时误差随预报放大；扩散先验+DPS 每 1.0 时间单位同化一次，能消除初值噪声影响（t=10 时误差 0.07~0.11，几乎与噪声 0~40% std(ω) 无关）。初值完美时同化反而把误差从 0 抬到 0.006。
 2. **平衡性**：DPS 分析场相对散度全尺度约 0.2，真值约 1e-4。已验证：**不是硬覆盖造成的**（有无覆盖几乎相同）；**大部分来自小尺度噪声被求导放大**，只保留大尺度（k≤16）后约 0.01，但仍比真值（5e-5）高约 200 倍。所以准确说法是"全尺度约 2000 倍，大尺度约 200 倍"。
-3. **与 EnKF 对比（已重做，2026-10-14，旧结论"基本持平"作废）**：公平起点（EnKF 集合以 DPS 第 0 步分析场为中心）、EnKF 与 DPS 都在验证 case 0006 上调参后，在 case 0002 上对比：全程平均误差 DPS 0.0131，最优 EnKF（膨胀 3.0、局地化 20 像素、20 成员）0.0204；不调参的 DPS 0.0356。DPS 散度全尺度约 0.2，局地化 EnKF（投影前）约 0.007。详见 README §5.5，图在 `outputs/study/enkf/`。
+3. **与 EnKF 对比（已重做，2026-10-14，旧结论"基本持平"作废）**：公平起点（EnKF 集合以 DPS 第 0 步分析场为中心）、EnKF 与 DPS 都在验证 case 0006 上调参后，在 case 0002 上对比：全程平均误差 DPS 0.0131，最优 EnKF（膨胀 3.0、局地化 20 像素、20 成员）0.0204；不调参的 DPS 0.0356。DPS 散度全尺度约 0.2，局地化 EnKF（投影前）约 0.007。详见 README §5.5，图在 `outputs/261014_study_ns2d/enkf/`。
 4. **重建时加不加背景（recon.png）**：背景准（误差≤5% std(ω)）时，"从加噪背景出发"最好（5% 时 0.0143，对比只用观测 0.0182、背景本身 0.0304）；背景差（≥10%）时加背景反而更差；"背景作引导"明显不如"从背景出发"。三种做法散度都约 0.2。
-5. **早先的循环同化结果**（`outputs/rollout_full/`）：数据进来时误差下降只在流动变化大的阶段成立；早期（流动几乎静止）数据进来反而让 u 的误差上升（中位数约 +40%）。融合（背景+观测）在 NS2D 上**没有**稳定优于只用观测（`obs_only`）。
+5. **早先的循环同化结果**（`outputs/261012_rollout_full/`）：数据进来时误差下降只在流动变化大的阶段成立；早期（流动几乎静止）数据进来反而让 u 的误差上升（中位数约 +40%）。融合（背景+观测）在 NS2D 上**没有**稳定优于只用观测（`obs_only`）。
 
 ## 4. 待办（按优先级）
 
@@ -91,10 +91,10 @@ SRC=$($PY -c "import json;print(json.load(open('data/ns2d/split.json'))['source'
 CASE=$SRC/0002/trajectory.npy
 
 # 三个研究实验（各约 20~40 分钟，放 tmux，选空闲 GPU）
-$PY analysis/study_ns2d.py noise --case $CASE --out outputs/study/noise --start-frame 100 --analysis-steps 100 --levels 0 0.05 0.1 0.2 0.4 --every 10 --device cuda:0
-$PY analysis/study_ns2d.py enkf  --case $CASE --out outputs/study/enkf  --start-frame 0 --analysis-steps 200 --every 10 --enkf-members 20 --device cuda:0
-$PY analysis/study_ns2d.py recon --case $CASE --out outputs/study/recon --start-frame 0 --frames 40 80 120 160 190 --bg-errors 0 0.02 0.05 0.1 0.2 0.4 --members 8 --device cuda:0
-$PY analysis/plot_study_ns2d.py --dir outputs/study/<noise|enkf|recon>
+$PY analysis/study_ns2d.py noise --case $CASE --out outputs/261014_study_ns2d/noise --start-frame 100 --analysis-steps 100 --levels 0 0.05 0.1 0.2 0.4 --every 10 --device cuda:0
+$PY analysis/study_ns2d.py enkf  --case $CASE --out outputs/261014_study_ns2d/enkf  --start-frame 0 --analysis-steps 200 --every 10 --enkf-members 20 --device cuda:0
+$PY analysis/study_ns2d.py recon --case $CASE --out outputs/261014_study_ns2d/recon --start-frame 0 --frames 40 80 120 160 190 --bg-errors 0 0.02 0.05 0.1 0.2 0.4 --members 8 --device cuda:0
+$PY analysis/plot_study_ns2d.py --dir outputs/261014_study_ns2d/<noise|enkf|recon>
 
 # 测试
 $PY -m pytest -q tests

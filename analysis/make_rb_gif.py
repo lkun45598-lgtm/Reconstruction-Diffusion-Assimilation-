@@ -23,7 +23,7 @@ LX, LZ = 3.0, 1.0
 
 def load(d, n):
     out = [np.load(Path(d) / f'frame_{k:04d}.npz') for k in range(n)]
-    return np.stack([o['truth'] for o in out]), np.stack([o['analysis'] for o in out]), np.stack([o['mask'] for o in out]), np.stack([o['observations'] for o in out])
+    return np.stack([o['truth'] for o in out]), np.stack([o['analysis'] for o in out]), np.stack([o['mask'] for o in out]), np.stack([o['observations'] for o in out]), np.array([bool(o['assimilated']) if 'assimilated' in o.files else True for o in out])
 
 
 def main():
@@ -36,6 +36,8 @@ def main():
     p.add_argument('--preview', type=int, default=None)
     p.add_argument('--suptitle', default='Rayleigh-Benard convection: sequential assimilation of 1% sparse observations')
     p.add_argument('--note', default='', help='extra sentence for the footnote (e.g. which method is which)')
+    p.add_argument('--every', type=int, default=1, help='observation interval K in frames (only changes the footnote)')
+    p.add_argument('--stride', type=int, default=1, help='draw every STRIDE-th frame (smaller file)')
     p.add_argument('--out', required=True)
     a = p.parse_args()
     r = a.channel
@@ -43,6 +45,7 @@ def main():
     n = a.frames or min(len(list(Path(d).glob('frame_*.npz'))) for _, d in arms)
     data = [load(d, n) for _, d in arms]
     truth, mask, obs = data[0][0], data[0][2], data[0][3]
+    used = [d[4] for d in data]; obs_on = np.any(used, axis=0)        # observations are drawn only at frames where some scheme assimilates them
     nx, nz = truth.shape[1:3]
     xe = np.linspace(0, LX, nx + 1); z = rb_nodes(nz); ze = np.concatenate([[0], (z[1:] + z[:-1]) / 2, [LZ]])
     xc = np.linspace(0, LX, nx, endpoint=False) + LX / (2 * nx)
@@ -52,7 +55,7 @@ def main():
     err = [np.abs(d[1][..., r] - truth[..., r]) for d in data]
     emax = float(np.percentile(np.concatenate([e.ravel() for e in err]), 99.5))
     rmse = [np.array([np.sqrt(np.mean(e[k][~mask[k][..., r]] ** 2)) for k in range(n)]) for e in err]
-    t = np.arange(n) * FRAME_DT
+    t = np.arange(n) * FRAME_DT; fx = np.arange(n)      # x axis of the RMSE panel is the frame index (t = frame * FRAME_DT is given in the title)
     cols = ['#0072B2', '#D55E00', '#009E73']
     short = ['A', 'B', 'C']
 
@@ -86,39 +89,39 @@ def main():
     axc = fig.add_subplot(gs[4, :])
     lines = []
     for i, (lab, _) in enumerate(arms):
-        axc.plot(t, rmse[i], color=cols[i], lw=1, alpha=.25)
+        axc.plot(fx, rmse[i], color=cols[i], lw=1, alpha=.25)
         lines.append(axc.plot([], [], color=cols[i], lw=2, label=f'{short[i]}: {lab.replace(chr(10), " ")}')[0])
     cursor = axc.axvline(0, color='k', lw=1.1)
-    axc.set_xlim(0, t[-1]); axc.set_yscale('log')
+    axc.set_xlim(0, fx[-1]); axc.set_yscale('log')
     ymax = max(x.max() for x in rmse) * 1.1; ymin = min(x.min() for x in rmse) * .9
     axc.set_ylim(ymin, ymax)
     ticks = [m * 10.0 ** e for e in range(-4, 1) for m in (1, 2, 3, 5) if ymin <= m * 10.0 ** e <= ymax]
     axc.set_yticks(ticks); axc.set_yticklabels([f'{v:g}' for v in ticks]); axc.minorticks_off()
-    axc.set_xlabel('Time $t$ (non-dimensional)'); axc.set_ylabel(f'RMSE of ${CH_SHORT[r]}$ at\nunobserved points')
-    axc.grid(alpha=.3); axc.legend(loc='upper right', ncol=1, fontsize=8.5, frameon=True)
+    axc.set_xlabel('Frame'); axc.set_ylabel(f'RMSE of ${CH_SHORT[r]}$ at\nunobserved points')
+    axc.grid(alpha=.3); axc.legend(loc='lower center', bbox_to_anchor=(.5, 1.0), ncol=3, fontsize=8.5, frameon=False)
     sup = fig.suptitle('', fontweight='bold', fontsize=12, y=.985)
-    fig.text(.5, .008, a.note + ('\n' if a.note else '') + 'Analysis fields after each assimilation step (observations assimilated at every frame). '
+    fig.text(.5, .008, a.note + ('\n' if a.note else '') + ('Analysis fields after each assimilation step (observations assimilated at every frame). ' if a.every == 1 else f'Observations enter every {a.every} frames; in between the fields are solver forecasts (analysis fields at the assimilation frames). ') +
              'RMSE is computed over the unobserved grid points only.', ha='center', fontsize=8, color='#444')
 
     def draw(k):
-        sup.set_text(f'{a.suptitle}\n{CH[r]},  $t$ = {t[k]:.2f}  (frame {k + 1} of {n})')
+        sup.set_text(f'{a.suptitle}\n{CH[r]},  frame {k} of {n - 1}  ($t$ = {t[k]:.2f})')
         ref.set_array(truth[k][..., r].T.ravel())
-        ii, jj = np.where(mask[k][..., r]); sc.set_offsets(np.c_[xc[ii], z[jj]]); sc.set_array(obs[k][ii, jj, r])
+        ii, jj = np.where(mask[k][..., r]) if obs_on[k] else (np.zeros(0, int), np.zeros(0, int)); sc.set_offsets(np.c_[xc[ii], z[jj]]); sc.set_array(obs[k][ii, jj, r])
         for i, (lab, _) in enumerate(arms):
             fld[i].set_array(data[i][1][k][..., r].T.ravel()); errm[i].set_array(err[i][k].T.ravel())
             titles[i].set_title(f'{short[i]}: {lab}   (RMSE = {rmse[i][k]:.4f})', loc='left', fontsize=9.5, color=cols[i], fontweight='bold')
-            lines[i].set_data(t[:k + 1], rmse[i][:k + 1])
-        cursor.set_xdata([t[k], t[k]])
+            lines[i].set_data(fx[:k + 1], rmse[i][:k + 1])
+        cursor.set_xdata([fx[k], fx[k]])
 
     out = Path(a.out); out.parent.mkdir(parents=True, exist_ok=True)
     if a.preview is not None:
         draw(a.preview); fig.savefig(f'{out}_preview.png', dpi=a.dpi * 1.5, bbox_inches='tight'); print('saved', f'{out}_preview.png'); return
     imgs = []
-    for k in range(n):
+    for k in range(0, n, a.stride):
         draw(k); fig.canvas.draw()
         imgs.append(Image.fromarray(np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()))
     imgs[0].save(f'{out}.gif', save_all=True, append_images=imgs[1:], duration=int(1000 / a.fps), loop=0)
-    print(f'saved {out}.gif ({n} frames, {imgs[0].size[0]}x{imgs[0].size[1]} px)')
+    print(f'saved {out}.gif ({len(imgs)} frames, {imgs[0].size[0]}x{imgs[0].size[1]} px)')
 
 
 if __name__ == '__main__':

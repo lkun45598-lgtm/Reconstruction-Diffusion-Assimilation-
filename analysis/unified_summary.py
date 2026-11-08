@@ -1,6 +1,6 @@
 """Numbers for the three-scheme comparison (A: background + observations, B: observations only, C: EnKF), observations in
-every frame, 3 test cases. Reads outputs/study_rb_g/unified/c*/enkf.csv (A = dps, C = enkf_infl_loc) and
-outputs/study_rb_g/fusion_c*/fusion.csv (B). Prints per-channel RMSE, divergence (raw and after the stream-function
+every frame, 3 test cases. Reads outputs/261018_g/unified/c*/enkf.csv (A = dps, C = enkf_infl_loc) and
+outputs/261018_g/fusion_c*/fusion.csv (B). Prints per-channel RMSE, divergence (raw and after the stream-function
 projection used by the solver restart) and the initial-noise results. Writes unified_summary.csv.
 """
 import argparse
@@ -43,7 +43,7 @@ def projected_divergence(root, every=3):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--root', default='outputs/study_rb_g')
+    ap.add_argument('--root', default='outputs/261018_g')
     a = ap.parse_args()
     s = load(a.root)
     cols = ['missing_rmse_ch0', 'missing_rmse_ch1', 'missing_rmse_ch2', 'missing_rmse']

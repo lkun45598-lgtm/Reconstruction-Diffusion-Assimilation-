@@ -46,4 +46,4 @@ RB：`outputs/rb_prior_4gpu/`（c=16、200 epoch）。NS2D：`outputs/ns2d_prior
 
 ## 结果位置
 
-`outputs/study_rb_g/`：`noise/`、`enkf/`（+`enkf_c1`、`enkf_c2`）、`fusion/`（含单帧图）；选参依据在 `outputs/study_rb_nohard/sweepF/` 与 `study_rb/sweeps*/`。
+`outputs/261018_g/`：`noise/`、`enkf/`（+`enkf_c1`、`enkf_c2`）、`fusion/`（含单帧图）；选参依据在 `outputs/261015_nohard/sweepF/` 与 `outputs/261015_rb_study/sweeps*/`。

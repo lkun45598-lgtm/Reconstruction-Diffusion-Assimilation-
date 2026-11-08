@@ -1,6 +1,6 @@
-"""Plot EnKF ensemble spread vs error of the ensemble mean per frame (from outputs/study_rb_spread). python analysis/plot_enkf_spread.py OUT.png"""
+"""Plot EnKF ensemble spread vs error of the ensemble mean per frame (from outputs/261027_spread). python analysis/plot_enkf_spread.py OUT.png"""
 import sys, glob, pandas as pd, matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
-d = pd.concat([pd.read_csv(f) for f in glob.glob('outputs/study_rb_spread/*.csv')])
+d = pd.concat([pd.read_csv(f) for f in glob.glob('outputs/261027_spread/*.csv')])
 cfgs = [(1, 1.1), (20, 1.1), (20, 1.4), (50, 1.4)]; fig, ax = plt.subplots(1, 4, figsize=(16, 3.6), sharey=True)
 for a, (K, i) in zip(ax, cfgs):
     m = d[(d.K == K) & (d.infl == i)].groupby('frame')[['spread', 'rmse']].mean()

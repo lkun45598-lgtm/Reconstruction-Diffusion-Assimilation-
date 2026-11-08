@@ -1,5 +1,5 @@
 """Numbers and figures for the noisy-observation study (sigma_obs = 0.1): three-scheme comparison on 3 test cases
-(outputs/study_rb_noisy/main/c*), bad-first-guess experiment (spinup/*), t=0 noise (noise/). Prints the tables, writes
+(outputs/261022_noisy/main/c*), bad-first-guess experiment (spinup/*), t=0 noise (noise/). Prints the tables, writes
 main.png/pdf, spinup.png/pdf, summary.txt-style CSVs next to the results."""
 import argparse
 from pathlib import Path
@@ -99,7 +99,7 @@ def plot_spinup(root, d):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__); ap.add_argument('--root', default='outputs/study_rb_noisy'); a = ap.parse_args()
+    ap = argparse.ArgumentParser(description=__doc__); ap.add_argument('--root', default='outputs/261022_noisy'); a = ap.parse_args()
     style(); root = Path(a.root)
     s = load_main(root); cols = ['missing_rmse_ch0', 'missing_rmse_ch1', 'missing_rmse_ch2', 'missing_rmse']
     t = s.groupby('arm')[cols].mean(); t.columns = ['b', 'u_x', 'u_z', 'pooled']

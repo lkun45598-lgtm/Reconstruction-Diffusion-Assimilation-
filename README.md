@@ -173,7 +173,7 @@ rdda-experiments --problem ns2d --data data/ns2d --prior outputs/ns2d_prior/best
   --seeds 0 1 2 --max-cases 6 --eval-horizons 1 3
 ```
 
-**已有结果**（`outputs/rollout_full/ns2d/`，测试 case 0002，200 个循环，1% 观测，背景模型 ν=2e-4）。`every K` = 观测每 K 步进入（`every0` 只在第 0 步，相当于纯数值预报）：
+**已有结果**（`outputs/261012_rollout_full/ns2d/`，测试 case 0002，200 个循环，1% 观测，背景模型 ν=2e-4）。`every K` = 观测每 K 步进入（`every0` 只在第 0 步，相当于纯数值预报）：
 
 | 观测频率 | 全程平均未观测点误差 | 最后一步 |
 |---|---|---|
@@ -199,7 +199,7 @@ CASE=$SRC/0002/trajectory.npy
 
 ```bash
 # 每个噪声样本单独跑一次（--noise-seed 0 1 2），各输出到自己的目录，再把 noise.csv 拼起来（含 sample 列）
-$PY analysis/study_ns2d.py noise --case $CASE --out outputs/study/noise_s0 --start-frame 100 \
+$PY analysis/study_ns2d.py noise --case $CASE --out outputs/261014_study_ns2d/noise_s0 --start-frame 100 \
     --analysis-steps 100 --levels 0 0.05 0.1 0.2 0.4 --every 10 --noise-seed 0 --device cuda:0
 ```
 
@@ -210,15 +210,15 @@ $PY analysis/study_ns2d.py noise --case $CASE --out outputs/study/noise_s0 --sta
 
 ```bash
 # 1) 在验证 case 0006 上选 EnKF 参数（最优点若在网格边界要扩大范围再扫；本文最终取膨胀 3.0、半径 20）
-$PY analysis/study_ns2d.py enkf_sweep --case $SRC/0006/trajectory.npy --out outputs/study/sweeps/enkf_sweep \
+$PY analysis/study_ns2d.py enkf_sweep --case $SRC/0006/trajectory.npy --out outputs/261014_study_ns2d/sweeps/enkf_sweep \
     --analysis-steps 100 --inflations 1.4 2 3 4 --radii 12 16 20 --device cuda:0
 # 2) 选 DPS 参数：配置格式 bg_std:dps_rate:obs_std:init[:t_start]
-$PY analysis/study_ns2d.py dps_sweep --case $SRC/0006/trajectory.npy --out outputs/study/sweeps/dps_sweep \
+$PY analysis/study_ns2d.py dps_sweep --case $SRC/0006/trajectory.npy --out outputs/261014_study_ns2d/sweeps/dps_sweep \
     --analysis-steps 100 --device cuda:0 --grid 1:2:0.05:background:0.4 1:1:0.05:background:0.4 1:1:0.05:noise
 # 3) 在测试 case 0002 上对比（200 步，每 10 步同化一次，约 10 分钟）
-$PY analysis/study_ns2d.py enkf --case $CASE --out outputs/study/enkf --start-frame 0 --analysis-steps 200 \
+$PY analysis/study_ns2d.py enkf --case $CASE --out outputs/261014_study_ns2d/enkf --start-frame 0 --analysis-steps 200 \
     --every 10 --enkf-members 20 --inflation 3.0 --radius 20 --device cuda:0
-$PY analysis/plot_study_ns2d.py --dir outputs/study/enkf
+$PY analysis/plot_study_ns2d.py --dir outputs/261014_study_ns2d/enkf
 ```
 
 图的三个子图：(a) 未观测点误差随时间（锯齿的下跳发生在观测进入时）；(b) 同化后速度场的散度（EnKF 为投影前）；(c) 观测进入时误差的变化百分比（负 = 观测起了纠正作用）。
@@ -237,7 +237,7 @@ $PY analysis/plot_study_ns2d.py --dir outputs/study/enkf
 
 ```bash
 # --frames 可拆成几份并行跑，再把 recon.csv 拼起来
-$PY analysis/study_ns2d.py recon --case $CASE --out outputs/study/recon_p0 --start-frame 0 \
+$PY analysis/study_ns2d.py recon --case $CASE --out outputs/261014_study_ns2d/recon_p0 --start-frame 0 \
     --frames 20 50 80 110 140 160 180 190 --bg-errors 0 0.02 0.05 0.1 0.2 0.4 --members 8 --device cuda:0
 ```
 
@@ -299,7 +299,7 @@ rdda-cycle --problem rb --case data/processed/test/case_00000.npy --prior output
   --projection streamfunction --no-relative-std --observation-fraction 0.01 --members 8
 ```
 
-**已有结果**（`outputs/rollout_full/rb/`，测试 case `case_00000`，100 个循环，1% 观测，背景模型 Ra=5e4，`bg_obs`）：
+**已有结果**（`outputs/261012_rollout_full/rb/`，测试 case `case_00000`，100 个循环，1% 观测，背景模型 Ra=5e4，`bg_obs`）：
 
 | 观测频率 | 全程平均未观测点误差 | 最后一步 |
 |---|---|---|
@@ -307,18 +307,18 @@ rdda-cycle --problem rb --case data/processed/test/case_00000.npy --prior output
 | 每 10 步 | 0.0556 | 0.0420 |
 | 每步 | 0.0354 | 0.0284 |
 
-背景模型有误差时，更频繁地引入观测能持续压低误差。但该流动变化慢（帧间变化约 0.009）、测试与训练同分布，**单 case 的结果不能说明方法泛化能力**。图在 `outputs/rollout_full/figs/`（`rb_error_curves.png`、`rb_effect_*.png`、`rb_rollout_*.gif/apng`）。
+背景模型有误差时，更频繁地引入观测能持续压低误差。但该流动变化慢（帧间变化约 0.009）、测试与训练同分布，**单 case 的结果不能说明方法泛化能力**。图在 `outputs/261012_rollout_full/figs/`（`rb_error_curves.png`、`rb_effect_*.png`、`rb_rollout_*.gif/apng`）。
 
 ### 6.5 研究实验（图 1~3）
 
-脚本 `analysis/study_rb.py`（子命令 `noise`、`enkf`、`enkf_sweep`、`dps_sweep`、`fusion`、`merge`）→ CSV，`analysis/plot_study_rb.py --dir <目录>` → PNG + PDF，`analysis/plot_rb_frame.py` 画单帧场。结果在 `outputs/study_rb_g/`。时间轴为非量纲时间（一帧 = 0.35）。
+脚本 `analysis/study_rb.py`（子命令 `noise`、`enkf`、`enkf_sweep`、`dps_sweep`、`fusion`、`merge`）→ CSV，`analysis/plot_study_rb.py --dir <目录>` → PNG + PDF，`analysis/plot_rb_frame.py` 画单帧场。结果在 `outputs/261018_g/`。时间轴为非量纲时间（一帧 = 0.35）。
 
 **统一设定（三个实验都一样）**
 - 方法：背景作为 DPS 的**似然引导项**，采样从纯噪声起（`--init noise`）。注意：不是“从加噪背景出发”，那是另一种方法，早期结果误用过，已全部作废重跑。
 - 观测：1% 随机点（17 个像素）、三通道同时观测、无噪声真值；因此 `obs_std` 只是似然权重（EnKF 里是 R），不是噪声水平。
 - 背景模型：Dedalus，Ra=5e4（真值 1e5）。**关硬观测**（`--no-hard-observation`）：DPS 与 EnKF 都不改观测点，否则会在 17 个点上造出尖峰、污染散度。
 - 指标：未观测点 RMSE（b、u_x、u_z 合并）；另输出逐通道和按通道标准差归一化的版本。散度为谱导数的相对散度，真值约 3.5e-5。
-- 公平：所有方法的参数都在**验证 case**（`val/case_00000`）上选，在测试 case（`test/case_00000`~`2`）上比。选出的配置：DPS 背景引导 `bg_std 0.3、dps_rate 2、obs_std 0.05`；仅观测 `obs_std 0.025、dps_rate 2`；EnKF 膨胀 2.5、局地化半径 1.5（x）× 1.2（z）物理长度、R=0.01、20 成员。选参依据在 `outputs/study_rb_nohard/sweepF/`、`outputs/study_rb/sweeps*/`。
+- 公平：所有方法的参数都在**验证 case**（`val/case_00000`）上选，在测试 case（`test/case_00000`~`2`）上比。选出的配置：DPS 背景引导 `bg_std 0.3、dps_rate 2、obs_std 0.05`；仅观测 `obs_std 0.025、dps_rate 2`；EnKF 膨胀 2.5、局地化半径 1.5（x）× 1.2（z）物理长度、R=0.01、20 成员。选参依据在 `outputs/261015_nohard/sweepF/`、`outputs/261015_rb_study/sweeps*/`。
 - 每个任务设 `OMP_NUM_THREADS=1`，多进程并行；Dedalus 求解器缓存（`reuse=True`）与新建版逐位一致（单元测试 `tests/test_rb_study.py`）。
 
 **图 1：t=0 加不同程度的噪声**（`noise`）。回答：初值有误差时，同化能否拉回来？同化后有没有破坏平衡？
@@ -342,7 +342,7 @@ rdda-cycle --problem rb --case data/processed/test/case_00000.npy --prior output
 DPS 比最优 EnKF 低约 26%（case 0 只好 10%，case 1、2 好 35% 和 31%），逐帧 DPS 更优的帧数为 76/95/98（各 100 帧）。图为三栏：(a) 各 case 平均误差，(b) 误差随时间，(c) 分析场散度。
 - 散度（EnKF 取重启前）：DPS 约 0.072，无局地化 EnKF 约 1e-5（成员无散度的线性组合，天然无散度），局地化 EnKF 约 0.004。EnKF 的 1e-5 是继承自求解器（纯 Dedalus 预报约 9e-6）：成员本身近似无散度，其线性组合也无散度，所以它不反映同化质量；局地化的逐点权重破坏了这一性质，4e-3 才是 EnKF 的真实平衡代价。局限：EnKF 只用 20 个成员（未测 40），单 seed。
 
-**图 2 的长时间补充（`outputs/study_rb_long/long.png`）**。回答：误差随时间还会往下掉吗？把 3 个测试 case 对应的原始 seed（81、82、83，真值前 100 帧与原测试数据一致）重算到 520 帧，从第 120 帧起共 400 个循环（约 140 个时间单位），只比 DPS 与局地化 EnKF（参数同图 2，每 3 帧同化）。
+**图 2 的长时间补充（`outputs/261018_long/long.png`）**。回答：误差随时间还会往下掉吗？把 3 个测试 case 对应的原始 seed（81、82、83，真值前 100 帧与原测试数据一致）重算到 520 帧，从第 120 帧起共 400 个循环（约 140 个时间单位），只比 DPS 与局地化 EnKF（参数同图 2，每 3 帧同化）。
 - DPS：前 100 帧降得最快，之后缓慢下降，300 帧后稳定在约 0.011（各 50 帧窗口均值 0.0165、0.0126、0.0115、0.0112、0.0111、0.0111、0.0109、0.0109）；局地化 EnKF 全程约 0.019，不再下降。全程平均 DPS 0.0120、EnKF 0.0190，三个 case 都是 DPS 更低（0.0125/0.0115/0.0119 对 0.0181/0.0193/0.0196）。
 - 局限：只跑了这两条线，单 seed，EnKF 20 成员。原始长数据在 `data/long_raw/`，脚本 `scripts_long_run.sh`。
 
@@ -351,7 +351,7 @@ DPS 比最优 EnKF 低约 26%（case 0 只好 10%，case 1、2 好 35% 和 31%�
 - 结果（全程平均未观测点误差）：case 0：0.0152 对 0.0149；case 1：0.0133 对 0.0171；case 2：0.0119 对 0.0193；**3 个 case 平均 0.0135 对 0.0171（背景降低约 21%）**。三个通道都是加背景更低（b 0.0136 对 0.0168，u_x 0.0139 对 0.0177，u_z 0.0127 对 0.0167）。
 - 但**优势不稳定**：case 0 持平，case 1、2 明显更好；循环开始后约前 5~7 个时间单位，背景反而更差（上一步分析还不准，预报出的背景拖累结果）；后半段 case 1、2 背景明显更好。散度几乎相同（0.072 对 0.076）。
 - `obs_only` 每帧独立采样、没有时间连续性，加背景的优势有一部分来自“求解器带来的时间连续性”，不全是背景质量本身。
-- 单帧场图（真值 / 观测 / 背景 / 两种分析 / 误差）：`outputs/study_rb_g/fusion/frame_c1_f35.png`（背景有帮助的帧）、`frame_c1_f03.png`（早期背景有害的帧），`analysis/plot_rb_frame.py` 生成。
+- 单帧场图（真值 / 观测 / 背景 / 两种分析 / 误差）：`outputs/261018_g/fusion/frame_c1_f35.png`（背景有帮助的帧）、`frame_c1_f03.png`（早期背景有害的帧），`analysis/plot_rb_frame.py` 生成。
 
 **关于散度的解读**：DPS 分析场的相对散度（约 0.07~0.09）比真值（3.5e-5）高约 3 个数量级，但这个指标对小尺度噪声极其敏感：给真值的速度加 0.6% 的白噪声，它就从 3.6e-5 升到 0.06。对 DPS 分析场做流函数投影，散度降到 0.009，而速度误差几乎不变。所以应读成“分析场不严格满足不可压缩，主要来自约 1% 的小尺度噪声被求导放大”，不要读成“方程平衡被严重破坏”。预报时 Dedalus 重启本身会做投影，不平衡不会累积。
 

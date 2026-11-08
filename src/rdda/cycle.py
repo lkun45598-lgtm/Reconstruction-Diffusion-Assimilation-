@@ -17,7 +17,7 @@ METHODS = ('bg_obs', 'obs_only', 'free_run', 'no_assim')
 
 
 def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=20, method='bg_obs',
-              assim_every=1, init_state=None, eval_horizons=(), out=None, obs_noise=0.0, obs_seed=0, **dps):
+              assim_every=1, warmup=0, first_assim=None, init_state=None, eval_horizons=(), out=None, obs_noise=0.0, obs_seed=0, **dps):
     """Run cycles 0..analysis_steps on truth (T,H,W,3); dps kwargs go to assimilate().
 
     Consecutive cycles are lead_frames saved frames apart, so cycle t is scored against truth[t*lead_frames].
@@ -32,6 +32,10 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
         assim_every=K the data at t=0 correct this first guess (bg_obs / no_assim only).
     assim_every (bg_obs only): data enter at cycle 0 and then every `assim_every` cycles; in between the state is
         the pure numerical forecast. 1 = every cycle (default), 0 = only at cycle 0 (same as free_run).
+    first_assim (bg_obs only): no data at cycle 0; the state of cycle 0 is init_state (or a pure forecast chain from it) and data enter at cycle first_assim, then every
+        assim_every cycles (frames before first_assim are pure numerical forecast; needs init_state).
+    warmup (bg_obs only): after the cycle-0 reconstruction, data re-enter only from cycle `warmup` on (still on multiples
+        of assim_every); the cycles in between are the pure numerical forecast.
     """
     if method not in METHODS: raise ValueError(f'method must be one of {METHODS}')
     if lead_frames < 1: raise ValueError('lead_frames must be >= 1')
@@ -50,7 +54,8 @@ def run_cycle(truth, prior, forecaster, mask, *, lead_frames=1, analysis_steps=2
             background, info = (None, {}) if t == 0 or method == 'obs_only' else forecaster(analysis, lead_frames * spf)
         spread = None
         data_in = ((t == 0 and method != 'no_assim') or method == 'obs_only'
-                   or (method == 'bg_obs' and assim_every > 0 and t % assim_every == 0))
+                   or (method == 'bg_obs' and assim_every > 0 and t % assim_every == 0 and t >= warmup))
+        if first_assim is not None: data_in = method == 'bg_obs' and assim_every > 0 and t >= first_assim and (t - first_assim) % assim_every == 0
         if method == 'no_assim' and t == 0:
             analysis = xtrue.copy() if init_state is None else np.asarray(init_state, dtype=np.float32)
         elif not data_in:

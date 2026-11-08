@@ -17,7 +17,7 @@
 ## 2. 已完成的结果
 
 ### 2.1 主结果（测试 20 case，3 种子 42/43/44，100 帧，EnKF 初始化 = A1 第 0 帧分析为中心 + 0.1 倍扰动）
-脚本 `analysis/test_eval.py`，结果 `outputs/study_rb_test/K{1,20,50}[_i14]/`、`outputs/study_rb_test_seeds/`。EnKF 膨胀：K=1 用 1.1，K=20/50 用验证集最优 1.4。
+脚本 `analysis/test_eval.py`，结果 `outputs/261027_test/K{1,20,50}[_i14]/`、`outputs/261026_test_seeds/`。EnKF 膨胀：K=1 用 1.1，K=20/50 用验证集最优 1.4。
 
 | K | A1 | EnKF | 纯预报 | A1 相对 EnKF |
 |---|---|---|---|---|
@@ -28,7 +28,7 @@
 ### 2.2 散度
 投影后 A1 与 EnKF 相对散度同为约 1.3e-7（打平）；K=1 时 A1 保存场散度更低（4.2e-7 对 9.5e-6）只是因为 A1 保存前投影了。公平口径下**做不到"A 比 EnKF 低"**。不投影对精度无损（5 个验证 case：0.0158→0.0157）。EnKF"原始散度约 5e-4"的旧说法无法核实，不要引用。
 
-### 2.3 Ra 敏感性与坏初值（测试集，K=1，单种子 42，`analysis/robust_eval.py`，`outputs/study_rb_robust/`）
+### 2.3 Ra 敏感性与坏初值（测试集，K=1，单种子 42，`analysis/robust_eval.py`，`outputs/261027_robust/`）
 - 预报 Ra：1e5 时 EnKF 更好（0.0150 对 0.0169，A1 仅 1/20 更优）；8e4 持平；5e4、2e4 时 A1 更好（2e4：0.0160 对 0.0548）。结论只能写"对模型误差稳健"。
 - 坏初值（10 case）：A1 在 1–5 帧内 RMSE<0.03，EnKF 需 10–55 帧，纯预报多数不能恢复。
 - 以上两项参数均未为新条件重调；机制解释（A1 为何恢复快）只是直观推断，未验证。
@@ -37,8 +37,8 @@
 - 现行主实验初始化：中心（A1 第 0 帧分析）+ 去均值的物理一致扰动（0.1 倍参考标准差）+ 跳过第 0 帧更新。起点 spread≈0.0143，误差≈0.038。
 - spread 定义：`sqrt(平均(集合方差))`，与 RMSE 同量纲（`src/rdda/enkf.py`）。膨胀为乘性，施加在 `enkf_analysis` 内。
 - spread 演化（5 个测试 case，`analysis/enkf_spread.py`，`docs/enkf_spread.png`）：K=1 稳定在 0.013–0.015（约误差的 0.6 倍）；K=20/50 观测之间 spread 收缩到约 0.007，误差增长，集合偏自信；加大膨胀可缓解。
-- **B 类初始化（20 个训练集快照作初始集合）**：测试集 3 种子已跑完（`analysis/enkf_snapshot_test.py`，`outputs/study_rb_test_snap/`，**尚未写入文档**）。平均 RMSE：K=1 0.0277、K=20 0.0423、K=50 0.0506，均**差于**"中心加扰动"（0.0263/0.0405/0.0458）和 A1。起点 spread≈0.042，误差≈0.066。（我手算的均值，写文档前建议复核。）
-- **lag 初始化（同轨迹第 0–19 帧各自积分到第 40 帧作 20 个成员，从第 40 帧起评估 60 帧）**：脚本 `analysis/lag_eval.py`，结果 `outputs/study_rb_lag/`。验证集（5 case）选膨胀：K=1→1.1，K=5→1.4，K=10→2.0，K=20→2.0（K=10、20 的最优在扫描边界 2.0，未再扩）。测试集 20 case × 3 种子（K=1/5/10/20）：
+- **B 类初始化（20 个训练集快照作初始集合）**：测试集 3 种子已跑完（`analysis/enkf_snapshot_test.py`，`outputs/261028_test_snap/`，**尚未写入文档**）。平均 RMSE：K=1 0.0277、K=20 0.0423、K=50 0.0506，均**差于**"中心加扰动"（0.0263/0.0405/0.0458）和 A1。起点 spread≈0.042，误差≈0.066。（我手算的均值，写文档前建议复核。）
+- **lag 初始化（同轨迹第 0–19 帧各自积分到第 40 帧作 20 个成员，从第 40 帧起评估 60 帧）**：脚本 `analysis/lag_eval.py`，结果 `outputs/261103_lag/`。验证集（5 case）选膨胀：K=1→1.1，K=5→1.4，K=10→2.0，K=20→2.0（K=10、20 的最优在扫描边界 2.0，未再扩）。测试集 20 case × 3 种子（K=1/5/10/20）：
 
 | K | A1 | EnKF(lag) | A1 相对 EnKF | A1 更优 case 数（3 种子） |
 |---|---|---|---|---|
@@ -59,7 +59,7 @@
 
 ## 4. 待办（建议顺序）
 1. **更新 `docs/项目说明_详细.md` 和 PDF**（`analysis/make_report_final.py` 生成 `docs/RB实验汇报_最终.pdf`）：加入 2.4 的 B 类和 lag 结果、K=5/10 的数据、spread 与初始化说明，并把摘要里"K≥20 下 A1 略优"改成带条件的表述。旧 PDF `RB实验汇报_带噪声观测.pdf` 仍是 10-23 的过时结果。
-2. **复核 B 类汇总**：把 `outputs/study_rb_test_snap` 的结果用脚本正式汇总（含逐 case 配对差和置信区间）。
+2. **复核 B 类汇总**：把 `outputs/261028_test_snap` 的结果用脚本正式汇总（含逐 case 配对差和置信区间）。
 3. **公平性补充实验（可选，需用户决定）**：(a) 给 EnKF 一个不含真值的初始化（例如用同化得到的分析场序列）；(b) 为 K=5/10/20 在验证集上重调 A1 的 `bg_std`/`obs_std`（假设：K 大时背景更不可信）；(c) 把 K=10/20 的 EnKF 膨胀扫到 2.5、3.0，确认最优不在边界。
 4. 检查两项引导的实际梯度范数之比（观测项只在 17 个点、背景项全场，谁主导没有数据）。
 5. 未做：观测噪声水平扫描（σ=0.05–0.3）；EnKF 成员数与初始扰动幅度扫描；`forecast_solver.py` 把最近内部节点当壁面置零的影响核查；`obs_std` 最优小于真噪声的原因；case 4 偏弱的原因。
@@ -68,7 +68,7 @@
 ## 5. 目录与脚本速查
 - 主评估：`analysis/test_eval.py`（A1/EnKF/纯预报）；膨胀对照用环境变量 `INFLS`、`ENKF_ONLY`。
 - 长间隔调参：`analysis/interval_sweep.py`；稳健性：`analysis/robust_eval.py`；spread：`analysis/enkf_spread.py`、`plot_enkf_spread.py`。
-- GIF：`outputs/study_rb_test/gif/case{0,1,2}/rb_{b,ux,uz}.gif`（A1/EnKF/纯预报，不入 git，用 `analysis/make_rb_gif.py`，不要带 `--preview` 否则只出预览图）。
+- GIF：`outputs/261027_test/gif/case{0,1,2}/rb_{b,ux,uz}.gif`（A1/EnKF/纯预报，不入 git，用 `analysis/make_rb_gif.py`，不要带 `--preview` 否则只出预览图）。
 - 旧的无用结果：`outputs/study_rb_init_start20_old/`（起点第 20 帧的大网格，设计与后来确认的不一致，仅供参考）。
 
 ## 6. 环境提醒

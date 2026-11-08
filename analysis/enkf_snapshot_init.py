@@ -8,7 +8,7 @@ seed, infl, rx, rz, out = int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3
 a = argparse.Namespace(data='data/processed', split='val', case_index=0, prior='x', out='x', start_frame=0, analysis_steps=99, rayleigh=1e5, model_rayleigh=5e4,
     observation_fraction=.01, members=8, dps_steps=100, obs_std=.05, bg_std=.3, dps_rate=2., init='noise', t_start=.4, hard_observation=False, div_weight=0.,
     obs_noise=.1, every=1, seed=42, device='cpu', enkf_members=20, enkf_obs_std=0.1, init_level=0.1, demean_init=True)
-truth, mask, fc = S.setup(a); center = np.load('outputs/study_rb_enkf_sweep/center_val0.npy')
+truth, mask, fc = S.setup(a); center = np.load('outputs/261024_enkf_sweep/center_val0.npy')
 r = np.random.default_rng(1000 + seed); files = sorted(glob.glob('data/processed/train/case_*.npy'))
 pick = list(zip(r.choice(len(files), 20, replace=False), r.integers(0, 100, 20)))               # 20 different train cases, random times
 ens0 = [np.load(files[c], mmap_mode='r')[t] for c, t in pick]

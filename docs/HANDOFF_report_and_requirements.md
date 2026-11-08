@@ -1,3 +1,5 @@
+> **已过时**（lag 初始化、K=1/5/10/20 的旧设置）。现行设置与待办见 `docs/HANDOFF_20261106_新实验设置与待办.md`。
+
 # 交接：报告撰写进展与用户要求（2026-11-05）
 
 写给新对话：先读 `CLAUDE.md`、`docs/HANDOFF_progress_todo.md`（实验进度，10-25 至 11-04），再读本文。本文记录这一轮做了什么、当前报告的内容与依据、用户对报告写法的全部要求、未解决的问题。数字全部来自 `outputs/` 里保存的结果，由脚本现算。
@@ -20,8 +22,8 @@
 | 20 | 0.0356 | 0.0292 | 0.0412 | 高 22% | 0/20 |
 
   纯预报只存于 K=1 文件（与 K 无关），其余 K 复用。EnKF lag 集合起点 spread 约 0.004、集合均值误差约 0.030。
-- 散度（表 4、图 4）：投影后扩散同化与 EnKF 相同（约 1.3e-7）；K=1 时扩散同化原始输出更低（4.2e-7 对 9.4e-6）只因它输出前已投影。投影对精度无影响：5 个验证轨迹 K=1，不投影 0.0158 / 投影 0.0157，5/5 轨迹投影后略低（已用 `outputs/study_rb_proj/all_frames.csv` 现算核实）。
-- **数据来源注意**：lag 运行没有保存散度，表 4/图 4 取自“从第 0 帧起连续同化、EnKF 以扩散同化第 0 帧分析为中心加扰动”的那批运行（`outputs/study_rb_test*`），表注已写明。图 4 虚线（真值散度）取自 `study_rb_proj` 约 4e-5，与正文“真值约 3.5e-5”是不同数据的均值，量级一致但未统一。
+- 散度（表 4、图 4）：投影后扩散同化与 EnKF 相同（约 1.3e-7）；K=1 时扩散同化原始输出更低（4.2e-7 对 9.4e-6）只因它输出前已投影。投影对精度无影响：5 个验证轨迹 K=1，不投影 0.0158 / 投影 0.0157，5/5 轨迹投影后略低（已用 `outputs/261025_proj/all_frames.csv` 现算核实）。
+- **数据来源注意**：lag 运行没有保存散度，表 4/图 4 取自“从第 0 帧起连续同化、EnKF 以扩散同化第 0 帧分析为中心加扰动”的那批运行（`outputs/261027_test*`），表注已写明。图 4 虚线（真值散度）取自 `study_rb_proj` 约 4e-5，与正文“真值约 3.5e-5”是不同数据的均值，量级一致但未统一。
 
 ## 3. 本轮做过但从主报告里删掉的内容（数据都还在）
 - 另外两种不含真值的 EnKF 初始集合（中心加扰动、训练集快照）在 K=1/20 上的对照：K=20 时中心加扰动下扩散同化低 12%，训练集快照下持平（0.0361 对 0.0362），lag 下 EnKF 更优。**用户要求不放进报告。**这组结果存于 `docs/RB实验汇报_K20.pdf`（中间稿，已提交）。
@@ -59,5 +61,5 @@
 ## 6. 文件速查
 - 主报告：`docs/RB实验汇报_稀疏观测同化.{tex,pdf}`；生成：`python analysis/make_report_main.py`（需 xelatex、AR PL SungtiL GB 字体；matplotlib 中文用 Droid Sans Fallback，含中文的数学文本要把中文和公式分成两个文本对象）。
 - 中间稿：`make_report_k20.py` → `RB实验汇报_K20`；`make_report_lag.py` → `RB实验汇报_lag初始化`。
-- 实验脚本：`analysis/lag_eval.py`（lag 实验）、`enkf_init_study.py`、`enkf_snapshot_test.py`。结果：`outputs/study_rb_lag/`、`study_rb_test*/`、`study_rb_test_snap/`、`study_rb_proj/`。
+- 实验脚本：`analysis/lag_eval.py`（lag 实验）、`enkf_init_study.py`、`enkf_snapshot_test.py`。结果：`outputs/261103_lag/`、`study_rb_test*/`、`study_rb_test_snap/`、`study_rb_proj/`。
 - 环境提醒：PDF 转图可用 python 的 `fitz`（没有 pdftoppm）；GPU 启动前先 `nvidia-smi`；每个 Dedalus 任务 `OMP_NUM_THREADS=1`。

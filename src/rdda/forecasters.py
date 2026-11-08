@@ -7,19 +7,33 @@ import numpy as np
 from rdda.ns2d.solver import NSConfig, NSSolver, forecast_fields
 
 
-class RBForecaster:
-    """Dedalus restart forecast for Rayleigh-Benard (needs Dedalus v3)."""
+def _rb_member(args):
+    """Worker of the process pool: one member's forecast (the solver is cached per process, reuse=True)."""
+    field, steps, config, projection = args
+    from rdda.solver.forecast_solver import forecast
+    return forecast(field, steps, config, projection, True, reuse=True)[0]
 
-    def __init__(self, config, projection='streamfunction', steps_per_frame=35):
+
+class RBForecaster:
+    """Dedalus restart forecast for Rayleigh-Benard (needs Dedalus v3).
+    forecast_many runs the members in a process pool when env RDDA_FORECAST_PROCS (or `procs`) > 1 (default: serial); results are identical."""
+
+    def __init__(self, config, projection='streamfunction', steps_per_frame=35, procs=None):
+        import os
         self.config, self.projection, self.steps_per_frame = config, projection, steps_per_frame
-        self._z = None
+        self.procs = int(os.environ.get('RDDA_FORECAST_PROCS', '1')) if procs is None else procs
+        self._z, self._pool = None, None
 
     def __call__(self, analysis, steps):
         from rdda.solver.forecast_solver import forecast
         return forecast(analysis, steps, self.config, self.projection, True, reuse=True)
 
     def forecast_many(self, fields, steps):
-        return np.stack([self(f, steps)[0] for f in fields])
+        if self.procs <= 1 or len(fields) < 2: return np.stack([self(f, steps)[0] for f in fields])
+        if self._pool is None:
+            import multiprocessing as mp
+            self._pool = mp.get_context('fork').Pool(min(self.procs, len(fields)))      # fork: no re-import of the main script; create the pool before the parent builds its own Dedalus solver
+        return np.stack(self._pool.map(_rb_member, [(np.asarray(f), steps, self.config, self.projection) for f in fields], chunksize=1))
 
     def consistent(self, field):
         return field          # the Dedalus restart projects onto a divergence-free state itself

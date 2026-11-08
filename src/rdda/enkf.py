@@ -81,7 +81,7 @@ def enkf_analysis(ens, obs, mask, obs_std, *, inflation=1.0, loc_radius=None, pe
 def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relative_std=True, std_ref=None,
                    init_std=0.0, init_center=None, inflation=1.1, loc_radius=None, analysis_steps=20, lead_frames=1, assim_every=1,
                    seed=0, periodic=(True, True), out=None, coords=None, lengths=(None, None), perturb=None,
-                   hard_observation=False, lowpass_k=16, obs_noise=0.0, obs_seed=0, skip_t0=True, demean_init=False, init_ensemble=None):
+                   hard_observation=False, lowpass_k=16, obs_noise=0.0, obs_seed=0, skip_t0=True, demean_init=False, init_ensemble=None, first_assim=None, ens_at_first=False, pre_chain=None):
     """EnKF rollout with the same bookkeeping/columns as rdda.cycle.run_cycle (forecast model = `forecaster`).
 
     Initial ensemble: (init_center if given, else truth[0]) + init_std * std_ref * N(0,1) on every variable (then made consistent).
@@ -114,9 +114,10 @@ def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relativ
     rows = []
     for t in range(analysis_steps + 1):
         xtrue = np.asarray(truth[t * lead_frames], dtype=np.float32)
-        if t > 0: ens = forecaster.forecast_many(ens, lead_frames * spf)
-        bg = ens.mean(0)
-        data_in = t == 0 or (assim_every > 0 and t % assim_every == 0)
+        pre = ens_at_first and first_assim is not None and t < first_assim     # ens_at_first: init_ensemble already IS the ensemble at frame first_assim; before it the state is pre_chain[t]
+        if t > 0 and not (ens_at_first and first_assim is not None and t <= first_assim): ens = forecaster.forecast_many(ens, lead_frames * spf)
+        bg = pre_chain[t] if pre else ens.mean(0)
+        data_in = t == 0 or (assim_every > 0 and t % assim_every == 0) if first_assim is None else (assim_every > 0 and t >= first_assim and (t - first_assim) % assim_every == 0)   # first_assim: frames before it are pure forecast
         raw = {}
         obs = noisy_observations(xtrue, mask, obs_noise, obs_seed, t)
         if data_in and not (t == 0 and init_center is not None and skip_t0):
@@ -129,7 +130,7 @@ def run_enkf_cycle(truth, forecaster, mask, *, members=20, obs_std=0.05, relativ
                 raw = {f'raw_{k}': v for k, v in forecaster.balance(m_).items()}
                 if lowpass_k is not None: raw.update({f'raw_lp_{k}': v for k, v in forecaster.balance(m_, lowpass_k).items()})
             ens = np.stack([forecaster.consistent(e) for e in ens])
-        an = ens.mean(0)
+        an = pre_chain[t] if pre else ens.mean(0)
         miss = ~mask
         rows.append({'frame': t, 'truth_frame': t * lead_frames, 'lead_frames': lead_frames, 'assimilated': int(data_in),
                      'analysis_rmse': metric(an, xtrue), 'missing_rmse': metric(an, xtrue, miss),

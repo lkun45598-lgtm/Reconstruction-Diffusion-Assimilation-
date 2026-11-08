@@ -1,6 +1,6 @@
 """Final paper-style report (xelatex) -> docs/RB实验汇报_最终.tex / .pdf. All numbers are computed from the saved outputs:
-outputs/study_rb_test (K=1/20/50, seed 42, + K*_i14 = EnKF inflation 1.4), outputs/study_rb_test_seeds (seeds 43/44), outputs/study_rb_robust (Ra, bad init),
-outputs/study_rb_spread (EnKF spread). Usage: python analysis/make_report_final.py   (needs xelatex)"""
+outputs/261027_test (K=1/20/50, seed 42, + K*_i14 = EnKF inflation 1.4), outputs/261026_test_seeds (seeds 43/44), outputs/261027_robust (Ra, bad init),
+outputs/261027_spread (EnKF spread). Usage: python analysis/make_report_final.py   (needs xelatex)"""
 import sys, glob, subprocess
 from pathlib import Path
 import numpy as np, pandas as pd
@@ -11,7 +11,7 @@ plt.rcParams.update({'font.family': ['DejaVu Sans', 'Droid Sans Fallback'], 'axe
 import make_report_noisy_tex as N
 from make_report_tex import BLUE, ORG, GRN, GRY, PRE
 DOC = Path('docs'); FIG = DOC / 'report_fig_final'; M.FIG = FIG; N.M.FIG = FIG
-T = Path('outputs/study_rb_test'); S = Path('outputs/study_rb_test_seeds'); RB = Path('outputs/study_rb_robust')
+T = Path('outputs/261027_test'); S = Path('outputs/261026_test_seeds'); RB = Path('outputs/261027_robust')
 KS, SEEDS = (1, 20, 50), (42, 43, 44); BEST = {1: 'EnKF', 20: 'EnKF_i1.4', 50: 'EnKF_i1.4'}
 f4 = lambda v: f'{v:.4f}'
 rd = lambda pat: pd.concat([pd.read_csv(f) for f in sorted(glob.glob(pat))])
@@ -103,7 +103,7 @@ def sci(v):
 
 
 def spread_numbers():
-    d = rd('outputs/study_rb_spread/*.csv'); rows = []
+    d = rd('outputs/261027_spread/*.csv'); rows = []
     for (K, i), g in d.groupby(['K', 'infl']):
         m = g.groupby('frame')[['spread', 'rmse']].mean(); rows.append((K, i, m.spread.iloc[0], m.rmse.iloc[0], m.spread.iloc[50:].mean(), m.rmse.iloc[50:].mean()))
     return rows

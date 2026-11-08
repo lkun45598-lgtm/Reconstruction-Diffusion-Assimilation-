@@ -1,5 +1,5 @@
 """Portrait A4 report (LaTeX, xelatex) for the noisy-observation RB study -> docs/RB实验汇报_带噪声观测.tex / .pdf.
-Same layout as make_report_tex.py (which keeps producing the noise-free report). Reads outputs/study_rb_noisy/{main,spinup,noise,
+Same layout as make_report_tex.py (which keeps producing the noise-free report). Reads outputs/261022_noisy/{main,spinup,noise,
 sweep_*}; figures go to docs/report_fig_noisy/. Usage: python analysis/make_report_noisy_tex.py   (needs xelatex)
 """
 import re
@@ -12,7 +12,7 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 import make_report_tex as M
 from make_report_tex import BLUE, ORG, GRN, GRY, DT, COLS, f4, PRE
 
-R = Path('outputs/study_rb_noisy'); DOC = Path('docs'); FIG = DOC / 'report_fig_noisy'; M.FIG = FIG
+R = Path('outputs/261022_noisy'); DOC = Path('docs'); FIG = DOC / 'report_fig_noisy'; M.FIG = FIG
 MAP = {'DPS with background (solver forecast + observations)': 'A', 'DPS with observations only (no background)': 'B', 'enkf_infl_loc': 'C'}
 
 

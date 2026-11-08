@@ -19,7 +19,7 @@
 - 旧脚本 `scripts_long_run.sh`（10-18 的无噪声长时程）传的是 `--enkf-obs-std 0.01`（若当标准差即 R=1e-4）、膨胀 2.5，引用那批旧结果要留意。
 
 ### 2.2 加数据 / 加大先验：没有收益（负结果）
-- 新增 400 个 case（seed 200–599，`data/rb_extra_raw`，`data/processed_v2` 共 560 train，val/test 同旧）。在 `10.16.46.215:/mnt/disk_e/lz/RB_Diffusion_DA_v2` 上 8 卡训练（c16 约 20 分钟级，c32 更久），结果复制回 `outputs/rb_prior_v2/`、`outputs/rb_prior_v2_c32/`。
+- 新增 400 个 case（seed 200–599，`data/rb_extra_raw`，`data/processed_v2` 共 560 train，val/test 同旧）。在 `10.16.46.215:/mnt/disk_e/lz/RB_Diffusion_DA_v2` 上 8 卡训练（c16 约 20 分钟级，c32 更久），结果复制回 `outputs/261023_rb_prior_v2/`、`outputs/261023_rb_prior_v2_c32/`。
 - 验证损失 0.0435（旧）→ 0.0284（c16）→ 0.0251（c32），但验证 case 0 的循环 RMSE 反而变差：0.0167（旧，3 种子均值）→ 0.0179 → 0.0197。
 - 81 组 (bg_std, dps_rate, obs_std) 重扫，三个先验的最优都是原参数 0.3/2/0.05，所以不是参数不匹配。单步实验（背景用真值预报一帧）里新先验在噪声观测下不比旧的差，所以**原因没找到**（可能与循环累积有关，只是推测）。
 - 数据本身：RB 状态种类很少（约 77% 能量在 kx=2，相邻帧相关 0.998），加 case 只让验证帧到最近训练帧的距离近了约 18%。
