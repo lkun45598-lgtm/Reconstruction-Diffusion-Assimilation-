@@ -6,7 +6,7 @@ Bottom     : RMSE at unobserved points of each scheme versus time, drawn up to t
 Inputs are the frame_XXXX.npz written by study_rb.py (truth, analysis, mask, observations). Panels use the true
 Chebyshev z nodes. Writes <out>.gif and, with --preview N, <out>_preview.png.
 """
-import argparse
+import argparse, textwrap
 from pathlib import Path
 import numpy as np
 import matplotlib
@@ -37,9 +37,12 @@ def main():
     p.add_argument('--suptitle', default='Rayleigh-Benard convection: sequential assimilation of 1% sparse observations')
     p.add_argument('--note', default='', help='extra sentence for the footnote (e.g. which method is which)')
     p.add_argument('--every', type=int, default=1, help='observation interval K in frames (only changes the footnote)')
+    p.add_argument('--obs-size', type=float, default=30, help='marker size of the observation scatter (use ~3 for 512x256 grids)')
+    p.add_argument('--first-assim', type=int, default=None, help='frames before this one are drawn as solver integration only (no truth/observations)')
     p.add_argument('--stride', type=int, default=1, help='draw every STRIDE-th frame (smaller file)')
     p.add_argument('--out', required=True)
     a = p.parse_args()
+    a.note = textwrap.fill(a.note, 160)
     r = a.channel
     arms = [s.split('=', 1) for s in a.arms]
     n = a.frames or min(len(list(Path(d).glob('frame_*.npz'))) for _, d in arms)
@@ -49,19 +52,19 @@ def main():
     nx, nz = truth.shape[1:3]
     xe = np.linspace(0, LX, nx + 1); z = rb_nodes(nz); ze = np.concatenate([[0], (z[1:] + z[:-1]) / 2, [LZ]])
     xc = np.linspace(0, LX, nx, endpoint=False) + LX / (2 * nx)
-    c0 = float(truth[..., r].mean()) if r == 0 else 0.0
-    half = float(np.percentile(np.abs(truth[..., r] - c0), 99.7))
+    c0 = float(np.nanmean(truth[..., r])) if r == 0 else 0.0
+    half = float(np.nanpercentile(np.abs(truth[..., r] - c0), 99.7))
     lim = (c0 - half, c0 + half)
     err = [np.abs(d[1][..., r] - truth[..., r]) for d in data]
-    emax = float(np.percentile(np.concatenate([e.ravel() for e in err]), 99.5))
+    emax = float(np.nanpercentile(np.concatenate([e.ravel() for e in err]), 99.5))
     rmse = [np.array([np.sqrt(np.mean(e[k][~mask[k][..., r]] ** 2)) for k in range(n)]) for e in err]
     t = np.arange(n) * FRAME_DT; fx = np.arange(n)      # x axis of the RMSE panel is the frame index (t = frame * FRAME_DT is given in the title)
     cols = ['#0072B2', '#D55E00', '#009E73']
     short = ['A', 'B', 'C']
 
     plt.rcParams.update({'font.size': 9, 'axes.titlesize': 9.5})
-    fig = plt.figure(figsize=(11.5, 11.2), dpi=a.dpi)
-    gs = fig.add_gridspec(5, 4, width_ratios=[1, .025, 1, .025], height_ratios=[1, 1, 1, 1, 1.35], wspace=.3, hspace=.55)
+    fig = plt.figure(figsize=(12.6, 11.6), dpi=a.dpi)
+    gs = fig.add_gridspec(5, 4, width_ratios=[1, .025, 1, .025], height_ratios=[1, 1, 1, 1, 1.35], wspace=.55, hspace=.55, bottom=.115, right=.93)
     fld, errm, titles = [], [], []
 
     def frame_ax(ax, left, bottom):
@@ -73,7 +76,7 @@ def main():
     ax = fig.add_subplot(gs[0, 0]); ref = ax.pcolormesh(xe, ze, truth[0, ..., r].T, cmap='RdBu_r', vmin=lim[0], vmax=lim[1]); frame_ax(ax, True, False)
     ax.set_title('Reference (truth)', loc='left', fontweight='bold')
     ax = fig.add_subplot(gs[0, 2]); ax.set_facecolor('#eeeeee')
-    ii, jj = np.where(mask[0][..., r]); sc = ax.scatter(xc[ii], z[jj], c=obs[0][ii, jj, r], cmap='RdBu_r', vmin=lim[0], vmax=lim[1], s=30, edgecolor='k', linewidth=.5)
+    ii, jj = np.where(mask[0][..., r]); sc = ax.scatter(xc[ii], z[jj], c=obs[0][ii, jj, r], cmap='RdBu_r', vmin=lim[0], vmax=lim[1], s=a.obs_size, edgecolor='k', linewidth=.3 if a.obs_size < 10 else .5)
     frame_ax(ax, False, False); ax.set_title(f'Sparse observations ({len(ii)} of {nx * nz} grid points, 1%)', loc='left', fontweight='bold')
     for i, (lab, _) in enumerate(arms):
         last = i == len(arms) - 1
@@ -93,7 +96,7 @@ def main():
         lines.append(axc.plot([], [], color=cols[i], lw=2, label=f'{short[i]}: {lab.replace(chr(10), " ")}')[0])
     cursor = axc.axvline(0, color='k', lw=1.1)
     axc.set_xlim(0, fx[-1]); axc.set_yscale('log')
-    ymax = max(x.max() for x in rmse) * 1.1; ymin = min(x.min() for x in rmse) * .9
+    ymax = max(np.nanmax(x) for x in rmse) * 1.1; ymin = min(np.nanmin(x) for x in rmse) * .9
     axc.set_ylim(ymin, ymax)
     ticks = [m * 10.0 ** e for e in range(-4, 1) for m in (1, 2, 3, 5) if ymin <= m * 10.0 ** e <= ymax]
     axc.set_yticks(ticks); axc.set_yticklabels([f'{v:g}' for v in ticks]); axc.minorticks_off()
@@ -104,12 +107,12 @@ def main():
              'RMSE is computed over the unobserved grid points only.', ha='center', fontsize=8, color='#444')
 
     def draw(k):
-        sup.set_text(f'{a.suptitle}\n{CH[r]},  frame {k} of {n - 1}  ($t$ = {t[k]:.2f})')
+        sup.set_text(f'{a.suptitle}\n{CH[r]},  frame {k} of {n - 1}  ($t$ = {t[k]:.2f})' + ('   [solver integration only, no observations]' if a.first_assim is not None and k < a.first_assim else ''))
         ref.set_array(truth[k][..., r].T.ravel())
         ii, jj = np.where(mask[k][..., r]) if obs_on[k] else (np.zeros(0, int), np.zeros(0, int)); sc.set_offsets(np.c_[xc[ii], z[jj]]); sc.set_array(obs[k][ii, jj, r])
         for i, (lab, _) in enumerate(arms):
             fld[i].set_array(data[i][1][k][..., r].T.ravel()); errm[i].set_array(err[i][k].T.ravel())
-            titles[i].set_title(f'{short[i]}: {lab}   (RMSE = {rmse[i][k]:.4f})', loc='left', fontsize=9.5, color=cols[i], fontweight='bold')
+            titles[i].set_title(f'{short[i]}: {lab}   (RMSE = {"n/a" if np.isnan(rmse[i][k]) else format(rmse[i][k], ".4f")})', loc='left', fontsize=9.5, color=cols[i], fontweight='bold')
             lines[i].set_data(fx[:k + 1], rmse[i][:k + 1])
         cursor.set_xdata([fx[k], fx[k]])
 

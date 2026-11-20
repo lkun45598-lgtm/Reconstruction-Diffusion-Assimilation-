@@ -13,9 +13,9 @@ split, seed, out = sys.argv[1], int(sys.argv[2]), Path(sys.argv[3]); cases = [in
 KS = [int(k) for k in os.environ.get('KS', '1,20').split(',')]; out.mkdir(parents=True, exist_ok=True)
 INFL = {k: float(os.environ.get('INFL', '1.1')) for k in KS}
 if ':' in os.environ.get('INFL', ''): INFL = {int(a): float(b) for a, b in (kv.split(':') for kv in os.environ['INFL'].split(','))}
-train = sorted(glob.glob('data/processed/train/case_*.npy'))
+train = sorted(glob.glob(os.environ.get('DONOR_DIR', 'data/processed/train') + '/case_*.npy'))   # donor pool: env DONOR_DIR (default: the Ra=1e5 training trajectories)
 for case in cases:
-    a = argparse.Namespace(data=os.environ.get('DATA', 'data/processed_600'), split=split, case_index=case, prior='', out='x', start_frame=0, analysis_steps=int(os.environ.get('STEPS', 599)), rayleigh=1e5, model_rayleigh=5e4,
+    a = argparse.Namespace(data=os.environ.get('DATA', 'data/processed_600'), split=split, case_index=case, prior='', out='x', start_frame=0, analysis_steps=int(os.environ.get('STEPS', 599)), rayleigh=1e5, model_rayleigh=float(os.environ.get('MRA', 5e4)), prandtl=float(os.environ.get('PR', 1.0)),
         observation_fraction=.01, members=32, dps_steps=100, obs_std=.05, bg_std=.3, dps_rate=2., init='noise', t_start=.4, hard_observation=False, div_weight=.3,
         obs_noise=.1, every=1, seed=seed, device='cpu', enkf_members=20, enkf_obs_std=0.1, init_level=0.1, demean_init=True)
     truth, mask, fc = S.setup(a)
@@ -36,7 +36,7 @@ for case in cases:
         df = pd.DataFrame(rows)[['frame', 'assimilated', 'missing_rmse', 'ensemble_spread']]
         df = df.assign(K=K, seed=seed, case=case, donor=donor, donor_frame=fr, t_init=t_init, t_run=t_run, n_assim=n_assim, infl=INFL[K])
         if SAVE:   # SAVE=1: divergence of the analysed mean field (raw / after the common no-slip projection) and the analyses of frames 400..599
-            z = rb_nodes(S.NZ, S.LZ); fr_ = [t for t in range(len(df)) if t >= 400]
+            z = rb_nodes(S.NZ, S.LZ); fr_ = [t for t in range(len(df)) if t >= int(os.environ.get('SAVE_FROM', 400))]
             an = np.stack([np.load(f'{tmp}/frame_{t:04d}.npz')['analysis'] for t in fr_])
             df['an_div_rel'] = np.nan; df['proj_div_rel'] = np.nan; df['truth_div_rel'] = np.nan
             df.loc[fr_, 'an_div_rel'] = [fc.balance(x)['div_rel'] for x in an]; df.loc[fr_, 'proj_div_rel'] = [fc.balance(project_field(x, z, S.LX, S.LZ))['div_rel'] for x in an]

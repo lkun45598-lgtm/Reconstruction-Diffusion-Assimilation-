@@ -88,7 +88,8 @@ def main(argv=None):
     p.add_argument('--model-channels', type=int, default=16)
     p.add_argument('--c-mults', type=int, nargs='+', default=[1, 2, 4], help='U-Net channel multipliers per level')
     p.add_argument('--periodic', action='store_true', help='circular padding on both spatial axes (periodic domains)')
-    p.add_argument('--val-stride', type=int, default=1, help='use every n-th validation frame (ns2d)')
+    p.add_argument('--val-stride', type=int, default=1, help='use every n-th validation frame')
+    p.add_argument('--epoch-fraction', type=float, default=1.0, help='each epoch uses a random subset (same on all ranks, reshuffled every epoch) of this fraction of the training frames')
     p.add_argument('--resume', default=None)
     p.add_argument('--save-every', type=int, default=10)
     p.add_argument('--max-train-batches', type=int, default=0, help='Smoke test only (0=all)')
@@ -103,7 +104,7 @@ def main(argv=None):
             val_set = NS2DDataset(args.data, 'val', frame_stride=args.val_stride)
         else:
             train_set = SnapshotDataset(args.data, 'train')
-            val_set = SnapshotDataset(args.data, 'val')
+            val_set = SnapshotDataset(args.data, 'val', frame_stride=args.val_stride)
         if train_set.shape != val_set.shape: raise ValueError('Train/val grid mismatch')
         sampler = DistributedSampler(train_set, num_replicas=world, rank=rank, shuffle=True, seed=args.seed) if world > 1 else None
         loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler,
@@ -139,6 +140,10 @@ def main(argv=None):
             print('train snapshots:', len(train_set), 'val snapshots:', len(val_set),
                   'shape:', train_set.shape, 'world_size:', world, 'batch_per_gpu:', args.batch_size, flush=True)
         for epoch in range(start_epoch, args.epochs):
+            if args.epoch_fraction < 1:        # random subset per epoch (frames of one trajectory are strongly correlated)
+                m = max(1, int(len(train_set) * args.epoch_fraction)); sub = torch.utils.data.Subset(train_set, np.random.default_rng(args.seed * 1000 + epoch).permutation(len(train_set))[:m].tolist())
+                sampler = DistributedSampler(sub, num_replicas=world, rank=rank, shuffle=True, seed=args.seed + epoch) if world > 1 else None
+                loader = DataLoader(sub, batch_size=args.batch_size, shuffle=sampler is None, sampler=sampler, num_workers=args.workers, pin_memory=device.type == 'cuda', drop_last=False)
             if sampler: sampler.set_epoch(epoch)
             parallel.train()
             total, count = 0., 0

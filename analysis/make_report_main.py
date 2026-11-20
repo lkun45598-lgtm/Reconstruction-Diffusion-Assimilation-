@@ -2,7 +2,7 @@
 Main experiment (new setting): DPS, EnKF and free forecast all start from the SAME donor chain (other-case frame integrated by the solver); frames 0..19 are solver only, assimilation starts at frame 20 and repeats every K frames; K=10,30; evaluation frames 400..599.
 Results: outputs/261107_first20_test/{dps,enkf}; selection: outputs/261107_sweep_first20. Runs where DPS got stuck far from the truth (run-mean RMSE > 0.1) are dropped for ALL methods (paired) in the K-specific tables/figures.
 All numbers computed from saved outputs. Usage: python analysis/make_report_main.py (needs xelatex)"""
-import sys, glob, subprocess, re
+import sys, glob, subprocess, re, json
 from pathlib import Path
 import numpy as np, pandas as pd
 from scipy import stats
@@ -47,8 +47,45 @@ def div_row(K): return divtab(K)
 
 
 pct = lambda K: 100 * (1 - SL[K][1][DIFF] / SL[K][1][ENKF])
-TEN = {K: rd(f'{EN}/s*_K{K}_c*.csv').groupby(['seed', 'case']).t_run.first().mean() for K in KS}; TDP = {K: rd(f'{DP}/s*_K{K}_c*.csv').groupby(['seed', 'case']).t_run.first().mean() for K in KS}
+TEN = {K: ALL[K][ALL[K].method == ENKF].groupby(['seed', 'case']).t_run.first().mean() for K in KS}; TDP = {K: ALL[K][ALL[K].method == DIFF].groupby(['seed', 'case']).t_run.first().mean() for K in KS}
+NAS = {K: ALL[K][ALL[K].method == DIFF].groupby(['seed', 'case']).n_assim.first().mean() for K in KS}   # assimilations per run
 EALL = rd(f'{EN}/s*_K10_c*.csv'); ELATE = {w: EALL[(EALL.frame >= w[0]) & (EALL.frame <= w[1])].missing_rmse.mean() for w in ((0, 19), (20, 99), (100, 199), (200, 399), (400, 599))}   # EnKF error by phase, K=10
+
+
+
+MR = Path('outputs/261112_multira_v2'); MRAS = (25000, 50000, 100000, 150000, 200000, 300000, 400000, 800000)
+
+
+def mr_load():
+    """per (Ra, K): means over the test cases where every listed method finished; 8e5 has no EnKF result (diverged on the validation cases) so only prior 0 / prior B / free forecast are compared there."""
+    m = lambda f: (lambda d: d[d.frame >= W0].missing_rmse.mean() if d.frame.max() >= 599 else np.nan)(pd.read_csv(f)); out = {}
+    for ra in MRAS:
+        D = MR / f'ra{ra}'
+        for K in KS:
+            r = {}
+            for c in range(20):
+                fs = dict(p0=D / f'p0/test/dps/s42_K{K}_c{c}.csv', pB=D / f'pB/test/dps/s42_K{K}_c{c}.csv', enkf=D / f'shared/test/enkf/s42_K{K}_c{c}.csv', free=D / f'shared/test/dps/free_s42_c{c}.csv')
+                r[c] = {k: (m(f) if f.exists() else np.nan) for k, f in fs.items()}
+            t = pd.DataFrame(r).T; has_enkf = t.enkf.notna().any(); ok = t.dropna() if has_enkf else t.drop(columns='enkf').dropna()
+            out[ra, K] = dict(n=len(ok), enkf_fail=int(t.enkf.isna().sum()) if has_enkf else None, p0=ok.p0.mean(), pB=ok.pB.mean(), free=ok.free.mean(), enkf=ok.enkf.mean() if has_enkf else np.nan,
+                              pB_lt_enkf=int((ok.pB < ok.enkf).sum()) if has_enkf else None, pB_lt_p0=int((ok.pB < ok.p0).sum()))
+    return out
+
+
+def rastr(ra):
+    e = int(np.floor(np.log10(ra))); return f'${ra / 10 ** e:g}\\times10^{{{e}}}$'
+
+
+def rolls_str(ra):
+    r = pd.Series([t['rolls'] for t in json.load(open(f'data/multi_ra/eval/ra{ra}/info.json'))['test']]).value_counts().sort_index(); return '/'.join(f'{k}:{v}' for k, v in r.items())
+
+
+def fig_ra(MRD):
+    fig, ax = plt.subplots(1, 2, figsize=(7.2, 2.5), sharey=True); x = np.array(MRAS) / 1e5
+    for a, K in zip(ax, KS):
+        for key, lab, c in (('p0', '先验 0（仅 Ra=1e5）', ORG), ('pB', '先验 B（多 Ra 混合训练）', BLUE), ('enkf', 'EnKF', GRN), ('free', '纯预报', GRY)): a.plot(x, [MRD[ra, K][key] for ra in MRAS], 'o-', ms=3, lw=1.2, color=c, label=lab)
+        a.axvline(1, color='#cccccc', lw=.8, ls='--'); a.axvspan(.5, 4, color='#f4f8fc', zorder=0); a.set_xscale('log'); a.set_yscale('log'); a.set_xticks(x); a.set_xticklabels([f'{v:g}' for v in x], fontsize=6); a.set_title(f'K={K}', fontsize=8); a.set_xlabel('Ra / $10^5$（粘性 $\\nu\\propto 1/\\mathrm{Ra}$）')
+    ax[0].set_ylabel('未观测点 RMSE'); ax[0].legend(fontsize=6, loc='upper left'); M.save(fig, 'ra_curve')
 
 
 def fig_workflow():
@@ -204,7 +241,7 @@ $K$ & DPS $\sigma_{\rm bg}$ & EnKF 膨胀 & 扩散同化 (DPS) & EnKF & 纯预�
 
 \subsection{计算时间}
 表~\ref{tab:time} 为每个轨迹的墙钟时间。两种方法都从第 0 帧运行到第 599 帧，共 600 帧。EnKF 的 20 个成员每帧都要由求解器预报，在单个 CPU 线程上运行；扩散同化的求解器只预报一个状态，同化时刻在 GPU 上采样（32 个样本、100 步）。
-\begin{table}[H]\centering\small\caption{每个测试轨迹的墙钟时间（秒；3 个种子 20 个轨迹的均值，含全部运行）。括号内为折合到每帧的秒数。}\label{tab:time}
+\begin{table}[H]\centering\small\caption{每个测试轨迹的墙钟时间（秒；3 个种子 20 个轨迹的均值）。括号内为折合到每帧的秒数。}\label{tab:time}
 \begin{tabular}{ccc}\toprule
 $K$ & 扩散同化 (DPS，600 帧，GPU) & EnKF (600 帧，单 CPU 线程)\\\midrule
 @TAB_TIME@
@@ -222,8 +259,40 @@ $K$ & 扩散同化 (DPS，600 帧，GPU) & EnKF (600 帧，单 CPU 线程)\\\mid
 \begin{figure}[H]\centering\includegraphics[width=\linewidth]{report_fig_main/div.pdf}\caption{同化结果的相对散度（虚线为真值的散度；第 400--599 帧，20 个轨迹平均）。}\end{figure}
 @TXT_D@
 
-\subsection{小结}
+\section{总体指标与分析}
+\subsection{总体指标}
+表~\ref{tab:sum} 汇总精度（RMSE）、散度与运行时间。
+\begin{table}[H]\centering\small\caption{总体指标汇总（第 400--599 帧，各测试轨迹的均值）。散度为各方法实际输出的相对散度；运行时间为单个测试轨迹从第 0 帧到第 599 帧的墙钟时间；同化次数为该轨迹中做同化的次数。}\label{tab:sum}
+\begin{tabular}{lcccccc}\toprule
+ & \multicolumn{3}{c}{$K=10$} & \multicolumn{3}{c}{$K=30$}\\\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+指标 & DPS & EnKF & 纯预报 & DPS & EnKF & 纯预报\\\midrule
+@TAB_SUM@
+\bottomrule\end{tabular}\end{table}
+\subsection{总体分析}
 @TXT_S@
+
+\section{降低粘性：多个 Rayleigh 数的实验}
+\subsection{目的与设置}
+前面的实验只在 Ra$=10^5$ 上进行，流动较黏。这里降低粘性，检验同化方法在更湍的流动上的表现，以及先验是否需要跟着流动参数重新训练。
+\begin{itemize}
+\item \textbf{改变的量。}热扩散系数 $\kappa=(\mathrm{Ra}\,\mathrm{Pr})^{-1/2}$ 保持不变，只改变粘性 $\nu=(\mathrm{Ra}/\mathrm{Pr})^{-1/2}$，即取 $\mathrm{Pr}=10^5/\mathrm{Ra}$，此时 $\nu\propto1/\mathrm{Ra}$。Ra 取 $2.5\times10^4$、$5\times10^4$、$10^5$、$1.5\times10^5$、$2\times10^5$、$3\times10^5$、$4\times10^5$、$8\times10^5$，粘性相当于 Ra$=10^5$ 时的 4、2、1、0.67、0.5、0.33、0.25、0.125 倍。网格、时间步与前面相同（$72\times24$，$\mathrm{d}t=0.01$）。
+\item \textbf{两个先验。}先验 0 是前面使用的先验，只在 Ra$=10^5$ 的流场上训练，不重新训练；先验 B 用 Ra$=5\times10^4$、$10^5$、$2\times10^5$、$4\times10^5$ 四个 Ra 的流场混合训练（各 40 个轨迹、每个 100 帧，共 160 个轨迹，与先验 0 的数据量相同），网络、训练轮数（200）与先验 0 相同，仍为无条件训练，不把 Ra 作为输入，验证损失 @VALB@。
+\item \textbf{其余设置与前面一致。}预报求解器的 Ra 取真值的一半、Pr 与真值相同；稀疏观测为 1\% 格点、噪声标准差 0.1；起点为 donor 链，第 20 帧起同化，K$=10,30$；EnKF 为 20 成员、无局地化。donor 取自与测试相同 Ra 的另一条轨迹（每个 Ra 40 条）。
+\item \textbf{评价。}每个 Ra 生成 60 个测试候选，按对流卷数均衡地取 20 个测试轨迹（能取到时单卷与双卷各半），5 个验证轨迹用于选参；种子 42，评价第 400--599 帧的未观测点 RMSE。DPS 的 $\sigma_{\rm bg}$ 从 0.5、1、2、4、8 中选，EnKF 的膨胀系数 $K=10$ 从 1.5、2、3、5 中选、$K=30$ 从 3、5、8、12 中选，规则与前面相同。散度惩罚的归一化尺度固定为 Ra$=10^5$ 测试集的值（2.681），所有 Ra 共用。
+\end{itemize}
+
+\subsection{结果}
+表~\ref{tab:ra} 为各 Ra 下的未观测点 RMSE。
+\begin{table}[H]\centering\small\caption{不同 Ra 下第 400--599 帧未观测点 RMSE（20 个测试轨迹、种子 42）。``B 优于 EnKF''为先验 B 的 RMSE 低于 EnKF 的轨迹数。Ra$=10^5$ 一行使用本节的测试集（按卷数均衡抽样），与主表的数值略有差别。$8\times10^5$ 时 EnKF 在验证轨迹上多数发散，没有得到可用的结果。}\label{tab:ra}
+\begin{tabular}{ccccccccc}\toprule
+Ra & $K$ & 卷数构成 & 先验 0 & 先验 B & EnKF & 纯预报 & B 优于 EnKF & 评价轨迹数\\\midrule
+@TAB_RA@
+\bottomrule\end{tabular}\end{table}
+\begin{figure}[H]\centering\includegraphics[width=\linewidth]{report_fig_main/ra_curve.pdf}\caption{未观测点 RMSE 随 Ra 的变化（浅蓝底为先验 B 的训练 Ra 范围，虚线为先验 0 的训练 Ra）。}\end{figure}
+
+\subsection{分析}
+@TXT_RA@
+
 \end{document}
 '''
 
@@ -235,17 +304,34 @@ def main():
              f'纯预报为 {r10[1][FREE]:.4f}（$K=10$）与 {r30[1][FREE]:.4f}（$K=30$），扩散同化与 EnKF 在两个 $K$ 下都远低于纯预报。$K$ 增大时两种同化方法的误差都上升。'
              f'EnKF 的预热较长：$K=10$ 时，第 0--19 帧（尚未同化）集合均值的未观测点误差为 {ELATE[0, 19]:.3f}，第 20--99 帧为 {ELATE[20, 99]:.3f}，第 100--199 帧为 {ELATE[100, 199]:.3f}，第 200--399 帧为 {ELATE[200, 399]:.3f}，第 400--599 帧为 {ELATE[400, 599]:.3f}。'
              f'两种方法的参数只在验证集的 5 个轨迹、1 个种子上按 $K$ 各选一次，候选取值较少。')
-    txt_s = (f'(1) 在未观测格点上，$K=10,30$ 时扩散同化的 RMSE 比 EnKF 分别低 {P[10]:.0f}\\% 与 {P[30]:.0f}\\%，20 个轨迹中分别有 {r10[4]} 与 {r30[4]} 个更优。'
-             '(2) 两种方法都随观测间隔增大而变差，且都远低于纯预报。'
-             f'(3) EnKF 从偏离真值较远的初始集合出发，需要数百帧才降到稳定水平（$K=10$ 时第 20--99 帧 {ELATE[20, 99]:.3f}，第 400--599 帧 {ELATE[400, 599]:.3f}）。'
-             '(4) 投影后，扩散同化与 EnKF 的散度相同。')
+    valb = f"{float(__import__('torch').load('outputs/261111_prior_b/best.pt', map_location='cpu', weights_only=False)['best_val']):.4f}"; MRD = mr_load(); fig_ra(MRD); g = lambda ra, K, k: MRD[ra, K][k]
+    tab_ra = ' \\\\\n'.join(f"{rastr(ra)} & {K} & {rolls_str(ra)} & {g(ra, K, 'p0'):.4f} & {g(ra, K, 'pB'):.4f} & " + ('--' if np.isnan(g(ra, K, 'enkf')) else f"{g(ra, K, 'enkf'):.4f}") + f" & {g(ra, K, 'free'):.4f} & " + ('--' if g(ra, K, 'pB_lt_enkf') is None else f"{g(ra, K, 'pB_lt_enkf')}/{MRD[ra, K]['n']}") + f" & {MRD[ra, K]['n']}" for ra in MRAS for K in KS) + ' \\\\'
+    old = pd.read_csv('outputs/261111_multira/summary.csv'); e_old = float(old[(old.Ra == 150000) & (old.K == 30)].EnKF.iloc[0]); intr = (150000, 300000)
+    txt_ra = (f'\\textbf{{先验不重新训练时，误差随粘性降低而增大。}}先验 0 只见过 Ra$=10^5$ 的流场：$K=10$ 时，Ra 从 $10^5$ 升到 $2\\times10^5$、$3\\times10^5$、$8\\times10^5$，RMSE 由 {g(100000, 10, "p0"):.4f} 增大到 {g(200000, 10, "p0"):.4f}、{g(300000, 10, "p0"):.4f}、{g(800000, 10, "p0"):.4f}；$8\\times10^5$ 时纯预报为 {g(800000, 10, "free"):.4f}，先验 0 只把误差降低 {100 * (1 - g(800000, 10, "p0") / g(800000, 10, "free")):.0f}\\%。Ra 低于 $10^5$ 时也变差（$2.5\\times10^4$：{g(25000, 10, "p0"):.4f}）。'
+              f'\\par\\textbf{{多 Ra 混合训练的先验 B 在整个范围内保持较低的误差。}}$K=10$ 时，Ra 从 $2.5\\times10^4$ 到 $3\\times10^5$ 的 RMSE 在 {min(g(r, 10, "pB") for r in MRAS[:6]):.3f}--{max(g(r, 10, "pB") for r in MRAS[:6]):.3f} 之间，比先验 0 低的轨迹数在 $3\\times10^5$ 上为 {g(300000, 10, "pB_lt_p0")}/{MRD[300000, 10]["n"]}。训练中没有出现过的 Ra（$1.5\\times10^5$、$3\\times10^5$）上先验 B 同样表现良好（{g(150000, 10, "pB"):.4f}、{g(300000, 10, "pB"):.4f}），说明先验能够在训练 Ra 之间插值。代价是在先验 0 的训练 Ra（$10^5$）上，先验 B 略差（{g(100000, 10, "pB"):.4f}，先验 0 为 {g(100000, 10, "p0"):.4f}）。'
+              f'\\par\\textbf{{超出训练范围时误差上升，但仍有明显增益。}}$8\\times10^5$ 超出先验 B 的训练上限（$4\\times10^5$），$K=10$ 时 RMSE 为 {g(800000, 10, "pB"):.4f}，明显高于范围内的 0.03 左右，但相对纯预报（{g(800000, 10, "free"):.4f}）降低了 {100 * (1 - g(800000, 10, "pB") / g(800000, 10, "free")):.0f}\\%，20 个轨迹都比先验 0 更好。'
+              f'\\par\\textbf{{与 EnKF 的比较。}}先验 B 的优势只在部分 Ra 上成立：在 $10^5$、$1.5\\times10^5$、$2\\times10^5$、$3\\times10^5$ 上，$K=10$ 时先验 B 在 {g(100000, 10, "pB_lt_enkf")}、{g(150000, 10, "pB_lt_enkf")}、{g(200000, 10, "pB_lt_enkf")}、{g(300000, 10, "pB_lt_enkf")} 个轨迹（共 20 个）上优于 EnKF；在 $2.5\\times10^4$ 和 $5\\times10^4$ 上两者接近，$5\\times10^4$ 时 EnKF 的平均 RMSE 更低（{g(50000, 10, "enkf"):.4f}，先验 B 为 {g(50000, 10, "pB"):.4f}）；$4\\times10^5$、$K=10$ 时先验 B 的平均值更低（{g(400000, 10, "pB"):.4f} 对 {g(400000, 10, "enkf"):.4f}），但逐轨迹只有 {g(400000, 10, "pB_lt_enkf")}/{MRD[400000, 10]["n"]} 个更优，EnKF 的平均值被少数误差很大的轨迹拉高。$8\\times10^5$ 时 EnKF 在验证轨迹上多数发散，无法选参，这一档不做比较。'
+              f'\\par\\textbf{{EnKF 对初始集合敏感。}}EnKF 的初始成员是由 donor 帧积分得到的。最初用 Ra$=10^5$ 的 donor 作各 Ra 的初始集合，$8\\times10^5$ 上多个 donor 发散；换成同 Ra 的 donor 后，$1.5\\times10^5$、$K=30$ 的 EnKF 误差由 {e_old:.4f} 变为 {g(150000, 30, "enkf"):.4f}。因此高 Ra 下 EnKF 的数值含有初始集合选择的影响，不完全反映方法本身。'
+              '\\par\\textbf{适用范围与局限。}(1) 每个 Ra 只有 20 个测试轨迹、1 个随机种子，没有给出置信区间，比较应当作趋势看待。(2) 参数只在 5 个验证轨迹上选取：DPS 只调了 $\\sigma_{\\rm bg}$，其余参数沿用 Ra$=10^5$ 的取值；部分 Ra 上选出的 $\\sigma_{\\rm bg}$ 落在候选范围的边界。(3) 这里的``提高 Ra''是固定 $\\kappa$、只降低 $\\nu$，Pr 从 4 变到 0.125，变化的不止是 Rayleigh 数；Ra 到 $8\\times10^5$ 时流动仍以两卷为主，变化主要是速度幅度增大和时间行为改变，并非空间结构变得更碎。(4) $72\\times24$ 的网格在 $8\\times10^5$ 时略欠分辨（与 $144\\times48$ 相比动能差约 2\\%），在更高的 Ra 上求解器本身会发散，所以能研究的 Ra 范围有限。(5) 两个先验的训练 Ra 范围是人为选定的，没有比较其他取法。')
     D = {K: div_row(K) for K in KS}; tv = D[10].truth_div_rel.mean()
+    M_ = [DIFF, ENKF, FREE]; rm = lambda K, m: SL[K][1][m]; red = lambda K, m: 100 * (1 - rm(K, m) / rm(K, FREE))
+    tm = lambda K, m: {DIFF: TDP, ENKF: TEN}[m][K] if m != FREE else None
+    def row(name, f, fmt): return f'{name} & ' + ' & '.join((fmt(f(K, m)) if f(K, m) is not None else '--') for K in KS for m in M_) + ' \\\\'
+    tab_sum = '\n'.join([row('未观测点 RMSE', rm, lambda v: f'{v:.4f}'),
+        row('相对散度', lambda K, m: D[K].loc[m, 'an_div_rel'], lambda v: sci(v)),
+        row('运行时间 (s)', tm, lambda v: f'{v:.0f}'), row('单帧平均耗时 (s)', lambda K, m: None if tm(K, m) is None else tm(K, m) / 600, lambda v: f'{v:.2f}'),
+        row('同化次数', lambda K, m: None if m == FREE else NAS[K], lambda v: f'{v:.0f}')])
+    txt_s = (f'\\textbf{{精度。}}扩散同化在 $K=10,30$ 时的未观测点 RMSE 为 {rm(10, DIFF):.4f} 与 {rm(30, DIFF):.4f}，EnKF 为 {rm(10, ENKF):.4f} 与 {rm(30, ENKF):.4f}，扩散同化分别低 {P[10]:.0f}\\% 与 {P[30]:.0f}\\%，20 个轨迹中分别有 {r10[4]} 与 {r30[4]} 个更优；相对纯预报（{rm(10, FREE):.4f}、{rm(30, FREE):.4f}），扩散同化把误差降低 {red(10, DIFF):.0f}\\% 与 {red(30, DIFF):.0f}\\%，EnKF 降低 {red(10, ENKF):.0f}\\% 与 {red(30, ENKF):.0f}\\%。两种方法都随观测间隔增大而变差。'
+             f'EnKF 从偏离真值较远的初始集合出发，需要数百帧才降到稳定水平（$K=10$ 时第 20--99 帧 {ELATE[20, 99]:.3f}，第 400--599 帧 {ELATE[400, 599]:.3f}）；本实验的评价窗口在第 400--599 帧，已避开这一预热段。'
+             f'\\par\\textbf{{散度。}}三种方法输出的相对散度都在 $10^{{-6}}$--$10^{{-5}}$ 量级，低于真值的 {sci(tv)}，方法之间没有显著差别，散度不是精度差异的来源。'
+             f'\\par\\textbf{{运行时间。}}两种方法都从第 0 帧跑到第 599 帧。扩散同化单个轨迹用时 {TDP[10]:.0f} 秒（$K=10$）与 {TDP[30]:.0f} 秒（$K=30$），EnKF 为 {TEN[10]:.0f} 秒与 {TEN[30]:.0f} 秒；扩散同化约为 EnKF 的 {100 * TDP[10] / TEN[10]:.0f}\\% 与 {100 * TDP[30] / TEN[30]:.0f}\\%。两者运行的硬件不同（扩散同化用 GPU，EnKF 用单个 CPU 线程），时间在多任务同时运行时测得，只作量级参考。'
+             '\\par\\textbf{适用范围与局限。}(1) 两种方法的参数都只在验证集的 5 个轨迹、1 个种子上选取，候选取值较少。(2) 模型误差只有 Ra 由 $10^5$ 取 $5\\times10^4$ 一档；EnKF 为 20 个成员、不使用局地化。(3) 测试轨迹的状态与训练集中的状态相近（扩散先验在训练集上训练），扩散同化的精度有一部分可能来自先验对此类流场的覆盖，这一点未做单独的消融实验。')
     pj = pd.read_csv('outputs/261025_proj/all_frames.csv'); pm = pj.groupby('variant').missing_rmse.mean(); pcs = pj.groupby(['case', 'variant']).missing_rmse.mean().unstack(); dd = pcs['A0'] - pcs['A1']
     ab0, ab1, ad0, dmin, dmax = pm['A0'], pm['A1'], pj[pj.variant == 'A0'].an_div_rel.mean(), dd.min(), dd.max()
     txt_d = (f'投影后三种方法的相对散度相同（$K=10$：{sci(D[10].loc[DIFF, "proj_div_rel"])}、{sci(D[10].loc[ENKF, "proj_div_rel"])}、{sci(D[10].loc[FREE, "proj_div_rel"])}；$K=30$：{sci(D[30].loc[DIFF, "proj_div_rel"])}、{sci(D[30].loc[ENKF, "proj_div_rel"])}、{sci(D[30].loc[FREE, "proj_div_rel"])}，依次为扩散同化、EnKF、纯预报）。'
              f'原始输出的散度在 $10^{{-6}}$--$10^{{-5}}$ 量级（$K=10$：{sci(D[10].loc[DIFF, "an_div_rel"])}、{sci(D[10].loc[ENKF, "an_div_rel"])}、{sci(D[10].loc[FREE, "an_div_rel"])}），低于真值的 {sci(tv)}，三种方法之间没有显著差别。'
              f'投影对精度几乎没有影响：在 5 个验证轨迹（$K=1$，100 帧，早先的运行）上，不做投影时未观测点 RMSE 为 {ab0:.4f}、投影后为 {ab1:.4f}，5 个轨迹上投影后都略低（差 {dmin:.5f}--{dmax:.5f}）。')
-    rep = {'TAB_MAIN': ' \\\\\n'.join(tab_main()) + ' \\\\', 'TXT_K': txt_k, 'TXT_D': txt_d, 'TAB_DIV': ' \\\\\n'.join(tab_div()) + ' \\\\', 'TXT_S': txt_s, 'TAB_TIME': ' \\\\\n'.join(f'{K} & {TDP[K]:.0f} ({TDP[K] / 600:.2f}) & {TEN[K]:.0f} ({TEN[K] / 600:.2f})' for K in KS) + ' \\\\', 'POOL': f'{POOL:.3f}', 'NOISE': f'{100 * .1 / POOL:.0f}',
+    rep = {'TAB_MAIN': ' \\\\\n'.join(tab_main()) + ' \\\\', 'TXT_K': txt_k, 'TXT_D': txt_d, 'TAB_DIV': ' \\\\\n'.join(tab_div()) + ' \\\\', 'TXT_S': txt_s, 'TAB_SUM': tab_sum, 'TAB_RA': tab_ra, 'TXT_RA': txt_ra, 'VALB': valb, 'TAB_TIME': ' \\\\\n'.join(f'{K} & {TDP[K]:.0f} ({TDP[K] / 600:.2f}) & {TEN[K]:.0f} ({TEN[K] / 600:.2f})' for K in KS) + ' \\\\', 'POOL': f'{POOL:.3f}', 'NOISE': f'{100 * .1 / POOL:.0f}',
            'FREE': f'{free:.3f}', 'FRELP': f'{100 * free / POOL:.0f}', 'P10': f'{P[10]:.0f}', 'P30': f'{P[30]:.0f}', 'BG10': f'{BG[10]:g}', 'BG30': f'{BG[30]:g}', 'I10': INFL[10], 'I30': INFL[30],
            'W10': f'{(BG[10] / .05) ** 2:.0f}', 'W30': f'{(BG[30] / .05) ** 2:.0f}', 'TRUEDIV': sci(tv)}
     body = BODY

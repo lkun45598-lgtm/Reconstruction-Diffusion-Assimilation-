@@ -21,15 +21,15 @@ class RBConfig:
             raise ValueError('Invalid RB configuration')
 
 
-def build_solver(config: RBConfig):
-    """Build fresh IVP solver; requires Dedalus v3. Call from a single MPI rank per case."""
+def build_solver(config: RBConfig, comm=None):
+    """Build fresh IVP solver; requires Dedalus v3. comm: MPI communicator the fields are distributed over (default: COMM_WORLD, i.e. all ranks of the job)."""
     config.validate()
     try:
         import dedalus.public as d3
     except ImportError as exc:
         raise RuntimeError('Install Dedalus v3 and its MPI/FFTW prerequisites for forward simulation') from exc
     coords = d3.CartesianCoordinates('x', 'z')
-    dist = d3.Distributor(coords, dtype=np.float64)
+    dist = d3.Distributor(coords, comm=comm, dtype=np.float64)
     xbasis = d3.RealFourier(coords['x'], size=config.nx, bounds=(0, config.lx), dealias=config.dealias)
     zbasis = d3.ChebyshevT(coords['z'], size=config.nz, bounds=(0, config.lz), dealias=config.dealias)
     x, z = dist.local_grids(xbasis, zbasis)

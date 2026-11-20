@@ -7,12 +7,12 @@ from rdda.cycle import run_cycle
 from rdda.rb_noise import rb_nodes
 from rdda.solver.no_slip_projection import project_field
 dev, out = sys.argv[1], Path(sys.argv[2]); jobs = [tuple(int(v) for v in j.split(':')) for j in sys.argv[3:]]; out.mkdir(parents=True, exist_ok=True)
-KS = [int(k) for k in os.environ.get('KS', '30,10,0,1').split(',')]; split = os.environ.get('SPLIT', 'test'); START = int(os.environ.get('START', 0)); WARMUP = int(os.environ.get('WARMUP', 0)); INIT = os.environ.get('INIT', 'frame0'); FIRST = int(os.environ['FIRST']) if os.environ.get('FIRST') else None; END = 599; train = sorted(glob.glob('data/processed/train/case_*.npy')); z = rb_nodes(S.NZ, S.LZ)
+KS = [int(k) for k in os.environ.get('KS', '30,10,0,1').split(',')]; split = os.environ.get('SPLIT', 'test'); START = int(os.environ.get('START', 0)); WARMUP = int(os.environ.get('WARMUP', 0)); INIT = os.environ.get('INIT', 'frame0'); FIRST = int(os.environ['FIRST']) if os.environ.get('FIRST') else None; END = 599; train = sorted(glob.glob(os.environ.get('DONOR_DIR', 'data/processed/train') + '/case_*.npy')); z = rb_nodes(S.NZ, S.LZ)
 for K in KS:
     for seed, case in jobs:
         f = out / (f'free_s{seed}_c{case}.csv' if K == 0 else f's{seed}_K{K}_c{case}.csv')
         if f.exists(): continue
-        a = argparse.Namespace(data='data/processed_600', split=split, case_index=case, prior='outputs/rb_prior_4gpu/best.pt', out='x', start_frame=START, analysis_steps=END - START, rayleigh=1e5, model_rayleigh=5e4,
+        a = argparse.Namespace(data=os.environ.get('DATA', 'data/processed_600'), split=split, case_index=case, prior=os.environ.get('PRIOR', 'outputs/rb_prior_4gpu/best.pt'), out='x', start_frame=START, analysis_steps=END - START, rayleigh=1e5, model_rayleigh=float(os.environ.get('MRA', 5e4)), prandtl=float(os.environ.get('PR', 1.0)),
             observation_fraction=.01, members=32, dps_steps=100, obs_std=.05, bg_std=float(os.environ.get('BG_STD', .3)), dps_rate=2., init='noise', t_start=.4, hard_observation=False, div_weight=.3,
             obs_noise=.1, every=max(K, 1), seed=seed, device=dev, enkf_members=20, enkf_obs_std=0.1, init_level=0.1, demean_init=True)
         truth, mask, fc = S.setup(a)
@@ -26,7 +26,7 @@ for K in KS:
         t0 = time.perf_counter(); tmp = tempfile.mkdtemp(dir='/tmp')
         rows = run_cycle(truth, a.prior, fc, mask, analysis_steps=a.analysis_steps, method=('no_assim' if init is not None else 'free_run') if K == 0 else 'bg_obs', assim_every=max(K, 1), warmup=WARMUP, first_assim=FIRST, init_state=init, out=tmp, **S.cyc_kw(a), **S.dps_kw(a, project_output=True))
         t = time.perf_counter() - t0
-        df = pd.DataFrame(rows)[['frame', 'assimilated', 'missing_rmse']].assign(frame=lambda d: d.frame + START, K=K, seed=seed, case=case, t_run=t, n_assim=sum(r['assimilated'] for r in rows)); df = df[df.frame >= 400].reset_index(drop=True)
+        df = pd.DataFrame(rows)[['frame', 'assimilated', 'missing_rmse']].assign(frame=lambda d: d.frame + START, K=K, seed=seed, case=case, t_run=t, n_assim=sum(r['assimilated'] for r in rows)); df = df[df.frame >= int(os.environ.get('SAVE_FROM', 400))].reset_index(drop=True)   # env SAVE_FROM: first frame kept in the csv / analysis file (default 400)
         an = np.stack([np.load(f'{tmp}/frame_{r - START:04d}.npz')['analysis'] for r in df.frame])       # analyses of frames 400..599, saved for later checks
         df['an_div_rel'] = [fc.balance(x)['div_rel'] for x in an]; df['proj_div_rel'] = [fc.balance(project_field(x, z, S.LX, S.LZ))['div_rel'] for x in an]
         df['truth_div_rel'] = [fc.balance(truth[r - START])['div_rel'] for r in df.frame]

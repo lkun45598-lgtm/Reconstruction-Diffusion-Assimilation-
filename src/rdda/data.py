@@ -81,7 +81,7 @@ def prepare(source, output, seed=42, fractions=(0.8, 0.1, 0.1), stride=1):
 
 class SnapshotDataset(Dataset):
     """Map snapshots without loading the complete split into GPU/host RAM."""
-    def __init__(self, processed, split):
+    def __init__(self, processed, split, frame_stride=1):
         base = Path(processed)
         if split not in ('train', 'val', 'test'): raise ValueError(split)
         files = sorted((base / split).glob('case_*.npy'))
@@ -95,7 +95,7 @@ class SnapshotDataset(Dataset):
         for i, f in enumerate(files):
             x = np.load(f, mmap_mode='r', allow_pickle=False)
             if x.ndim != 4 or x.shape[-1] != 3: raise ValueError(f'Unexpected shape in {f}: {x.shape}')
-            self.index.extend((i, t) for t in range(x.shape[0]))
+            self.index.extend((i, t) for t in range(0, x.shape[0], frame_stride))
         self.shape = tuple(np.load(files[0], mmap_mode='r').shape[1:])
         if self.shape[0] % 4 or self.shape[1] % 4:
             raise ValueError('Provided U-Net requires H and W multiples of four')

@@ -2114,6 +2114,8 @@ class SDE(qc_of_input):
         tnext = t - dt_
         # 多条件融合：单次 forward+backward 得到 predictor 与 sum(guidance_i * ∇L_i)
         predictor, dps_grad_val = self._dps_grad_multi_and_predictor(input_dict, t, model, conditions)
+        if getattr(self, 'trace', None) is not None:   # optional hook (t, x_t, x0_hat) for visualising the denoising path
+            with torch.no_grad(): self.trace(float(t), x.detach(), self.converter(predictor.detach(), t, x, target_type='x0').detach())
         with torch.no_grad():
             with torch.autocast(device_type=self.device.type, dtype=self.infer_dtype):
                 score = self.converter(predictor, t, x, target_type='score')

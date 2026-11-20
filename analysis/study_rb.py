@@ -10,6 +10,7 @@ units here; observations are noise-free truth, so obs_std is only the likelihood
 Sweeps run on a VALIDATION case, the comparison on a TEST case. One process per sample/config: use `merge` afterwards.
 """
 import argparse
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -57,10 +58,11 @@ def setup(a):
     f = sorted((Path(a.data) / a.split).glob('case_*.npy'))[a.case_index]
     truth = np.load(f)[a.start_frame:].astype(np.float32)
     mask = make_mask(truth.shape[1:], a.observation_fraction, a.seed)
-    fc = RBForecaster(RBConfig(nx=NX, nz=NZ, lx=LX, lz=LZ, rayleigh=a.model_rayleigh, prandtl=1.0, dt=0.01), 'streamfunction')
+    fdt = float(os.environ.get('FC_DT', 0.01))   # forecast solver step (one saved frame = 0.35 time units = round(0.35/fdt) steps)
+    fc = RBForecaster(RBConfig(nx=NX, nz=NZ, lx=LX, lz=LZ, rayleigh=a.model_rayleigh, prandtl=getattr(a, 'prandtl', 1.0), dt=fdt), 'streamfunction', steps_per_frame=round(0.35 / fdt))
     a.std = np.load(Path(a.data) / 'stats.npz')['std']
     global DIV_SCALE
-    DIV_SCALE = rms_grad(truth[0])
+    DIV_SCALE = float(os.environ['DIV_SCALE']) if os.environ.get('DIV_SCALE') else rms_grad(truth[0])   # env DIV_SCALE: one fixed scale for all cases (the penalty is then the same function of the field at every Ra)
     print('case', f, 'obs pixels', int(mask.any(-1).sum()), flush=True)
     return truth, mask, fc
 
