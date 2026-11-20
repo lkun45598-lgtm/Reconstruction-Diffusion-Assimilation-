@@ -4,7 +4,7 @@ SPMD：mpirun -n (1+G*R)；rank 0 是主进程（EnKF/同化逻辑，接口同 R
     fc = MPIForecaster(config, procs_per_member=R, steps_per_frame=N)
     if not fc.is_master: fc.serve(); sys.exit(0)
     ...fc.forecast_many(ens, steps)...; fc.close()
-与单进程 forecast(projection='none') 的差别只来自并行归约的舍入（见 analysis/rbc_explore/mpi_fc_test.py）。只支持不投影：输入应是（近似）合法的求解器状态。"""
+与单进程 forecast(projection='none') 的差别只来自并行归约的舍入。只支持不投影：输入应是（近似）合法的求解器状态。"""
 import numpy as np
 from mpi4py import MPI
 from rdda.solver.rb_equations import build_solver

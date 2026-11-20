@@ -4,3 +4,14 @@ __pycache__/
 *.egg-info/
 data/
 outputs/
+
+# Local research artifacts and workflows
+/analysis/
+/docs/
+/tests/
+/CLAUDE.md
+/requirements-analysis.txt
+/requirements-dev.txt
+/scripts_long_run.sh
+/jobs_*.json
+/queue_*.log
